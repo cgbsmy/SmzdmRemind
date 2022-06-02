@@ -10,7 +10,7 @@
 #include <windows.h>
 //#include <shlwapi.h>
 //#pragma comment(lib, "shlwapi.lib")
-#pragma comment(linker, "/nodefaultlib")
+
 // C 运行时头文件
 
 /*
@@ -23,6 +23,7 @@
 
 #ifndef _DEBUG
 #ifdef _MSC_VER
+#pragma comment(linker, "/nodefaultlib")
 #pragma function(memset)
 void* __cdecl memset(void* pTarget, int value, size_t cb) {
 	char* p = (char*)pTarget;
