@@ -170,6 +170,7 @@ HWND hComboSendMode;
 HWND hComBoPercentage;
 HANDLE hMap = NULL;
 HANDLE hGetDataThread;
+HANDLE hGetZhiThread=NULL;
 NOTIFYICONDATA nid;
 HICON iMain;
 //HICON iTray;
@@ -735,21 +736,8 @@ BOOL SendBark(wchar_t* szBarkUrl,wchar_t* szBarkSound,wchar_t* szTitle, wchar_t*
 	{
 		LPCWSTR header = L"Content-Type:application/json";
 		DWORD ret = WinHttpAddRequestHeaders(hRequest, header, lstrlen(header), WINHTTP_ADDREQ_FLAG_ADD);
-		WCHAR szBody[2048] = L"{\n\"body\": \"";
-		lstrcat(szBody, szContent);
-/*
-		lstrcat(szBody, L"\",\n\"device_key\": \"");
-		lstrcat(szBody, uid);
-*/
-		lstrcat(szBody, L"\",\n	\"title\" : \"");
-		lstrcat(szBody, szTitle);
-        lstrcat(szBody, L"\",\n \"badge\": 1,\n \"category\": \"category\",\n \"sound\": \"");
-        lstrcat(szBody, szBarkSound);
-        lstrcat(szBody, L"\",\n \"icon\": \"https://");
-        lstrcat(szBody, szImg);
-		lstrcat(szBody, L"\",\n \"url\": \"");
-		lstrcat(szBody, szUrl);
-		lstrcat(szBody, L"\"\n }");
+		WCHAR szBody[2048];
+        wsprintf(szBody,L"{\n\"body\": \"%s\",\n	\"title\" : \"%s\",\n \"badge\": 1,\n \"category\": \"category\",\n \"sound\": \"%s\",\n \"icon\": \"https://%s\",\n \"url\": \"%s\"\n }",szContent,szTitle,szBarkSound,szImg,szUrl);
 		DWORD dwByte = 0;
 		char szUTF8[2048] = { 0 };
 		::WideCharToMultiByte(CP_UTF8, NULL, szBody, int(lstrlen(szBody)), szUTF8, 2048, NULL, NULL);
@@ -877,26 +865,17 @@ BOOL SendWeChatPusher(wchar_t* uid, wchar_t* szTitle, wchar_t* szContent, wchar_
     {
         LPCWSTR header = L"Content-Type:application/json";
         DWORD ret = WinHttpAddRequestHeaders(hRequest, header, lstrlen(header), WINHTTP_ADDREQ_FLAG_ADD);
-		WCHAR szBody[2048] = L"{\n\"touser\": \"";
-        lstrcat(szBody, RemindSave.szWeChatUserID);
-        lstrcat(szBody, L"\",\n\"msgtype\": \"news\",\n	\"agentid\": ");
-        lstrcat(szBody, RemindSave.szWeChatAgentId);
-        lstrcat(szBody, L",\n	\"news\" : {\n	\"articles\": [{\n	\"title\": \"");
-        lstrcat(szBody, szTitle);
-        lstrcat(szBody, L"\",\n \"description\": \"");
-        lstrcat(szBody, szContent);
-        lstrcat(szBody, L"\",\n \"url\": \"");
-//        WCHAR surl[] = L"https://app.smzdm.com/xiazai/?json={%22url%22:%22https://m.smzdm.com/p/54084912/%22,%22channel_name%22:%22youhui%22,%22linkVal%22:%2254084912%22,%22article_id%22:%2254084912%22,%22open_from%22:%22youshangXZ%22,%22frompage%22:%22taoxi01%22,%22targetpage%22:%22youhui%22,%22zdm_cp%22:%22H5|%22}";
-        lstrcat(szBody, szUrl);
-        lstrcat(szBody, L"\",\n \"picurl\": \"https://");
-        lstrcat(szBody, szImg);
-		lstrcat(szBody, L"\"\n }]\n},\n}");
+		WCHAR szBody[2048];
+        wsprintf(szBody, L"{\n\"touser\": \"%s\",\n\"msgtype\": \"news\",\n	\"agentid\": %s,\n	\"news\" : {\n	\"articles\": [{\n	\"title\": \"%s\",\n \"description\": \"%s\",\n \"url\": \"%s\",\n \"picurl\": \"https://%s\"\n }]\n},\n}",
+            RemindSave.szWeChatUserID, RemindSave.szWeChatAgentId, szTitle, szContent, szUrl, szImg);
+//		wsprintf(szBody, L"{\n\"touser\": \"%s\",\n\"msgtype\": \"markdown\",\n \"agentid\" : %s,\n \"markdown\": {\n \"content\": \"**%s**\n%s\n(%s)\n!(%s)\"\n }\n }",
+//			RemindSave.szWeChatUserID, RemindSave.szWeChatAgentId, szTitle, szContent, szUrl, szImg);
         DWORD dwByte = 0;
         char szUTF8[2048] = { 0 };
         ::WideCharToMultiByte(CP_UTF8, NULL, szBody, int(lstrlen(szBody)), szUTF8, 2048, NULL, NULL);
         bResults = WinHttpSendRequest(hRequest, 0, 0, szUTF8, strlen(szUTF8), strlen(szUTF8), 0);
     }
-
+    //        WCHAR surl[] = L"https://app.smzdm.com/xiazai/?json={%22url%22:%22https://m.smzdm.com/p/54084912/%22,%22channel_name%22:%22youhui%22,%22linkVal%22:%2254084912%22,%22article_id%22:%2254084912%22,%22open_from%22:%22youshangXZ%22,%22frompage%22:%22taoxi01%22,%22targetpage%22:%22youhui%22,%22zdm_cp%22:%22H5|%22}";
     // End the request.
     if (bResults)
         bResults = WinHttpReceiveResponse(hRequest, NULL);
@@ -956,16 +935,8 @@ BOOL SendDingDing(wchar_t* access_token, wchar_t* szTitle, wchar_t* szContent, w
 	{
 		LPCWSTR header = L"Content-Type:application/json";
 		DWORD ret = WinHttpAddRequestHeaders(hRequest, header, lstrlen(header), WINHTTP_ADDREQ_FLAG_ADD);
-		WCHAR szBody[2048] = L"{\n \"msgtype\": \"link\",\n \"link\": {\n \"text\": \"";
-		lstrcat(szBody, szContent);
-        lstrcat(szBody, L"\",\n \"title\": \"");
-		lstrcat(szBody, szTitle);
-        lstrcat(szBody, L"\",\n \"picUrl\": \"https://");
-        lstrcat(szBody, szImg);
-		lstrcat(szBody, L"\",\n \"messageUrl\": \"");
-		//        WCHAR surl[] = L"https://app.smzdm.com/xiazai/?json={%22url%22:%22https://m.smzdm.com/p/54084912/%22,%22channel_name%22:%22youhui%22,%22linkVal%22:%2254084912%22,%22article_id%22:%2254084912%22,%22open_from%22:%22youshangXZ%22,%22frompage%22:%22taoxi01%22,%22targetpage%22:%22youhui%22,%22zdm_cp%22:%22H5|%22}";
-		lstrcat(szBody, szUrl);				
-		lstrcat(szBody, L"\"\n }\n}");
+		WCHAR szBody[2048];
+        wsprintf(szBody,L"{\n \"msgtype\": \"link\",\n \"link\": {\n \"text\": \"%s\",\n \"title\": \"%s\",\n \"picUrl\": \"https://%s\",\n \"messageUrl\": \"%s\"\n }\n}", szContent, szTitle, szImg, szUrl);
 		DWORD dwByte = 0;
 		char szUTF8[2048]={0};
 		::WideCharToMultiByte(CP_UTF8, NULL, szBody, int(lstrlen(szBody)), szUTF8, 2048, NULL, NULL);
@@ -1007,20 +978,9 @@ BOOL SendWxPusher(wchar_t* uid, wchar_t* szTitle, wchar_t* szContent,wchar_t *sz
     {
         LPCWSTR header = L"Content-Type:application/json";
         DWORD ret =WinHttpAddRequestHeaders(hRequest, header, lstrlen(header), WINHTTP_ADDREQ_FLAG_ADD);
-		WCHAR szBody[2048] = L"\n{\n\"appToken\":\"";
-		lstrcat(szBody, szWxPusherToken);
-        lstrcat(szBody, L"\",\n\"content\":\"");
-        lstrcat(szBody,L"<img src=https://");
-        lstrcat(szBody, szImg);
-        lstrcat(szBody, L" /> <font size=4> <br /> ");
-		lstrcat(szBody, szContent);
-		lstrcat(szBody, L" </font> \",\n\"summary\":\"");
-		lstrcat(szBody, szTitle);        
-        lstrcat(szBody, L"\",\n\"contentType\":2,\n\"topicIds\":[123],\n\"uids\":[\"");
-        lstrcat(szBody, uid);
-        lstrcat(szBody, L"\"],\n\"url\":\"");
-		lstrcat(szBody, szUrl);
-		lstrcat(szBody, L"\"\n}\n");
+		WCHAR szBody[2048];
+        wsprintf(szBody,L"\n{\n\"appToken\":\"%s\",\n\"content\":\"<img src=https://%s /> <font size=4> <br /> %s </font> \",\n\"summary\":\"%s\",\n\"contentType\":2,\n\"topicIds\":[123],\n\"uids\":[\"%s\"],\n\"url\":\"%s\"\n}\n",
+            szWxPusherToken, szImg, szContent, szTitle, uid, szUrl);
         DWORD dwByte=0;
         char szUTF8[2048] = { 0 };
         ::WideCharToMultiByte(CP_UTF8, NULL, szBody, int(lstrlen(szBody)), szUTF8, 2048, NULL, NULL);
@@ -1132,6 +1092,164 @@ void SetOldPushed(REMINDITEM* lpRI, UINT id)
         lpRI->n = 0;
     lpRI->oldID[lpRI->n] = id;
     lpRI->n += 1;
+}
+BOOL GetMemberZhiStarTalk(WCHAR* wUrl, UINT* uZhi, UINT* uBuZhi, UINT* uStar, UINT* uTalk)
+{
+    BOOL bPost = FALSE;
+    if (lstrstr(wUrl, L"post"))
+        bPost = TRUE;
+	BOOL  bResults = FALSE;
+	HINTERNET  hSession = NULL, hConnect = NULL, hRequest = NULL;
+	DWORD dwSize = 0;
+	DWORD dwDownloaded = 0;
+	WCHAR* wHost = lstrstr(wUrl, L":");
+	if (wHost)
+		wHost += 3;
+	else
+		wHost = wUrl;
+	WCHAR* wUrlPath = lstrstr(wHost, L"/");
+	WCHAR szHost[128];
+	lstrcpyn(szHost, wHost, wUrlPath - wHost + 1);
+	// Use WinHttpOpen to obtain a session handle.
+	hSession = WinHttpOpen(L"Remind", WINHTTP_ACCESS_TYPE_NO_PROXY, NULL, NULL, NULL);
+	if (rovi.dwMajorVersion == 6 && rovi.dwMinorVersion == 1)//WIN 7 开启TLS1.2
+	{
+		DWORD flags = WINHTTP_FLAG_SECURE_PROTOCOL_TLS1_2;
+		WinHttpSetOption(hSession, WINHTTP_OPTION_SECURE_PROTOCOLS, &flags, sizeof(flags));
+	}
+	// Specify an HTTP server.
+	if (hSession)
+        hConnect = WinHttpConnect(hSession, szHost, INTERNET_DEFAULT_HTTPS_PORT, 0);
+	// Create an HTTP request handle.
+	if (hConnect)
+		hRequest = WinHttpOpenRequest(hConnect, L"GET", wUrlPath, NULL, L"", WINHTTP_DEFAULT_ACCEPT_TYPES, WINHTTP_FLAG_SECURE);
+	if (rovi.dwMajorVersion == 6 && rovi.dwMinorVersion == 1)//WIN 7 开启TLS1.2
+	{
+		DWORD dwSecFlag = SECURITY_FLAG_IGNORE_CERT_CN_INVALID |
+			SECURITY_FLAG_IGNORE_CERT_DATE_INVALID |
+			SECURITY_FLAG_IGNORE_UNKNOWN_CA |
+			SECURITY_FLAG_IGNORE_CERT_WRONG_USAGE;
+		WinHttpSetOption(hRequest, WINHTTP_OPTION_SECURITY_FLAGS, &dwSecFlag, sizeof(dwSecFlag));
+	}
+	// Send a request.
+	if (hRequest)
+	{
+		bResults = WinHttpSendRequest(hRequest, WINHTTP_NO_ADDITIONAL_HEADERS, 0, WINHTTP_NO_REQUEST_DATA, 0, 0, 0);
+	}
+
+	// End the request.
+	if (bResults)
+		bResults = WinHttpReceiveResponse(hRequest, NULL);
+	DWORD dErr = GetLastError();
+	// Keep checking for data until there is nothing left.
+	size_t i = 0;
+    char* pszOutBuffer = new char[NETPAGESIZE/2];
+	ZeroMemory(pszOutBuffer, NETPAGESIZE/2);
+    if (bResults)
+    {
+        do
+        {
+            dwSize = 0;
+            WinHttpQueryDataAvailable(hRequest, &dwSize);
+            if (!dwSize)
+                break;
+            if (i + dwSize > NETPAGESIZE/2)
+                dwSize = NETPAGESIZE/2 - i;
+            if (WinHttpReadData(hRequest, (LPVOID)&pszOutBuffer[i], dwSize, &dwDownloaded))
+            {
+                i = strlen(pszOutBuffer);
+            }
+            if (!dwDownloaded)
+                break;
+        } while (dwSize != 0);
+        char* cStart = pszOutBuffer;// xstrstr(pszOutBuffer, "icon-thumb-up-o-thin");
+        if (cStart)
+        {
+            char* cZhi;
+            if(bPost)
+                cZhi = xstrstr(cStart, "feed-number");
+            else
+                cZhi = xstrstr(cStart, "rating_worthy_num");
+            if (cZhi)
+            {
+                char *cZhiLeft = xstrstr(cZhi, ">");
+                if (cZhiLeft)
+                {
+                    cZhiLeft += 1;
+                    *uZhi = my_atoi(cZhiLeft);
+                }
+            }
+            if (!bPost)
+            {
+                char* cBuZhi = xstrstr(cStart, "rating_unworthy_num");
+                if (cBuZhi)
+                {
+					char* cBuZhiLeft = xstrstr(cBuZhi, ">");
+					if (cBuZhiLeft)
+					{
+						cBuZhiLeft += 1;
+						*uBuZhi = my_atoi(cBuZhiLeft);
+					}
+                }
+            }
+            char* cStar = xstrstr(cStart, "\"icon-star-o");
+            if (cStar)
+            {
+                char* cStarLeft = xstrstr(cStar, "span");
+                if (cStarLeft)
+                {
+                    cStarLeft = xstrstr(cStarLeft, ">");
+                    if (cStarLeft)
+                    {
+                        cStarLeft += 1;
+                        *uStar = my_atoi(cStarLeft);
+                    }
+                }
+            }
+            char* cTalk;
+            if(bPost)
+                cTalk = xstrstr(cStart, "icon-comment-o");
+            else
+                cTalk = xstrstr(cStart, "icon-comment-o\"");
+            if (cTalk)
+            {
+                char* cTalkLeft;
+                if(bPost)
+                    cTalkLeft = xstrstr(cTalk, "em>");
+                else
+                    cTalkLeft = xstrstr(cTalk, "an>");
+                if (cTalkLeft)
+                {
+                    cTalkLeft += 3;
+                    *uTalk = my_atoi(cTalkLeft);
+                }
+            }
+        }
+//        WCHAR* szOutBuffer = new WCHAR[NETPAGESIZE];
+//        MultiByteToWideChar(CP_UTF8, 0, pszOutBuffer, -1, szOutBuffer, NETPAGESIZE);
+    }
+    delete[]pszOutBuffer;
+	if (hRequest) WinHttpCloseHandle(hRequest);
+	if (hConnect) WinHttpCloseHandle(hConnect);
+	if (hSession) WinHttpCloseHandle(hSession);
+    return TRUE;
+}
+DWORD WINAPI GetZhiThreadProc(PVOID pParam)//获取网站数据线程
+{
+    UINT i = (UINT)pParam;
+        WCHAR szUrl[129];
+        UINT uZhi = 0, uBuZhi = 0, uStar = 0, uTalk = 0;
+        ListView_GetItemText(hList, i, 10, szUrl, 128);
+        GetMemberZhiStarTalk(szUrl, &uZhi, &uBuZhi, &uStar, &uTalk);
+        wsprintf(szUrl,L"%d", uZhi);
+        ListView_SetItemText(hList, i, 4, szUrl);
+		wsprintf(szUrl, L"%d", uBuZhi);
+		ListView_SetItemText(hList, i, 5, szUrl);
+		wsprintf(szUrl,L"%d", uStar);
+		ListView_SetItemText(hList, i, 6, szUrl);
+		wsprintf(szUrl,L"%d", uTalk);
+		ListView_SetItemText(hList, i, 7, szUrl);
+    return 0;
 }
 BOOL SearchSMZDM(REMINDITEM* lpRI, BOOL bList, int iPage, BOOL bSmzdmSearch)
 {
@@ -1279,19 +1397,19 @@ BOOL SearchSMZDM(REMINDITEM* lpRI, BOOL bList, int iPage, BOOL bSmzdmSearch)
         DWORD sl = strlen(pszOutBuffer);
         UINT iID = 0;
         WCHAR wID[10] = { 0 };
-        WCHAR szLink[64];
-        WCHAR szImg[128];
+        WCHAR szLink[64];//商品链接
+        WCHAR szImg[128];//商品图片
         szImg[0] = L'\0';
-        WCHAR szTitle[128];
-        float fPrice = 0;
+        WCHAR szTitle[128];//商品标题
+        float fPrice = 0;//价格
         //    WCHAR szPrice[8];
-        WCHAR szDescripe[512];
+        WCHAR szDescripe[512];//描述
         szDescripe[0] = L'\0';
         UINT lZhi = 0;
         UINT lBuZhi = 0;
         UINT lStar = 0;
         UINT lTalk = 0;
-        WCHAR szGoPath[512];
+        WCHAR szGoPath[512];//直达链接
         szGoPath[0] = L'\0';
         if (bList)
         {
@@ -1429,39 +1547,6 @@ BOOL SearchSMZDM(REMINDITEM* lpRI, BOOL bList, int iPage, BOOL bSmzdmSearch)
                             }
                         }
                     }
-					if (lstrlen(lpRI->szFilter) != 0)//过滤词
-					{
-						WCHAR* cFilterLeft = lpRI->szFilter;
-						while (cFilterLeft)
-						{
-							WCHAR* cFilterRight = lstrstr(cFilterLeft, L" ");
-							if (cFilterRight)
-								cFilterRight[0] = L'\0';
-							if (lstrstr(szTitle, cFilterLeft))
-							{
-								if (cFilterRight)
-									cFilterRight[0] = L' ';
-								bContinue = TRUE;
-								break;
-							}
-							if (cFilterRight)
-							{
-								cFilterRight[0] = L' ';
-								cFilterLeft = cFilterRight + 1;
-								while (cFilterLeft[0] == L' ')
-								{
-									cFilterLeft++;
-								}
-							}
-							else
-								cFilterLeft = 0;
-						}
-					}
-                    if (bContinue)
-                    {
-                        cStart = lstrstr(cStart, L"feed-row-wide");
-                        continue;
-                    }
                     WCHAR* cTalk = lstrstr(cStart, L"z-icon-talk-o-thin");
                     if (cTalk)
                     {
@@ -1532,10 +1617,10 @@ BOOL SearchSMZDM(REMINDITEM* lpRI, BOOL bList, int iPage, BOOL bSmzdmSearch)
                         WCHAR* cStar = lstrstr(cStart, L"z-icon-star-o-thin");
                         if (cStar)
                         {
-                            WCHAR* cStarLeft = lstrstr(cStar, L"i>");
+                            WCHAR* cStarLeft = lstrstr(cStar, L"span>");
                             if (cStarLeft)
                             {
-                                cStarLeft += 2;
+                                cStarLeft += 5;
                                 lStar = my_wtoi(cStarLeft);
                             }
                         }
@@ -1680,6 +1765,39 @@ BOOL SearchSMZDM(REMINDITEM* lpRI, BOOL bList, int iPage, BOOL bSmzdmSearch)
                             }
                         }
                     }
+					if (lstrlen(lpRI->szFilter) != 0)//过滤词
+					{
+						WCHAR* cFilterLeft = lpRI->szFilter;
+						while (cFilterLeft)
+						{
+							WCHAR* cFilterRight = lstrstr(cFilterLeft, L" ");
+							if (cFilterRight)
+								cFilterRight[0] = L'\0';
+							if (lstrstr(szTitle, cFilterLeft) || lstrstr(szDescripe, cFilterLeft))
+							{
+								if (cFilterRight)
+									cFilterRight[0] = L' ';
+								bContinue = TRUE;
+								break;
+							}
+							if (cFilterRight)
+							{
+								cFilterRight[0] = L' ';
+								cFilterLeft = cFilterRight + 1;
+								while (cFilterLeft[0] == L' ')
+								{
+									cFilterLeft++;
+								}
+							}
+							else
+								cFilterLeft = 0;
+						}
+					}
+					if (bContinue)
+					{
+						cStart = lstrstr(cStart, L"feed-row-wide");
+						continue;
+					}
                 }
                 else///////////////////////////////////////////////////////////////按值友ID搜索
                 {
@@ -1827,7 +1945,7 @@ BOOL SearchSMZDM(REMINDITEM* lpRI, BOOL bList, int iPage, BOOL bSmzdmSearch)
                     }
                     if (lstrlen(lpRI->szKey) != 0)
                     {
-                        bContinue = FALSE;
+                        bContinue = TRUE;
 						WCHAR* cKeyLeft = lpRI->szKey;
 						while (cKeyLeft)
 						{
@@ -1955,6 +2073,8 @@ BOOL SearchSMZDM(REMINDITEM* lpRI, BOOL bList, int iPage, BOOL bSmzdmSearch)
                                 break;
                         }
                     }
+//                    if(lpRI->bMemberPost)
+//                        GetMemberZhiStarTalk(szLink, &lZhi, &lBuZhi, &lStar, &lTalk);
                 }
                 BOOL bYes = TRUE;
                 if (bZhi)
@@ -1965,7 +2085,7 @@ BOOL SearchSMZDM(REMINDITEM* lpRI, BOOL bList, int iPage, BOOL bSmzdmSearch)
                     else if (lBuZhi == 0)
                         uPercentage = 100;
                     else
-                        uPercentage = 100 -lBuZhi *100 / lZhi;
+                        uPercentage = lZhi*100 / (lZhi+lBuZhi);
                     if ((lpRI->uZhi < lZhi || lpRI->uZhi == 0) && (lpRI->uBuZhi > lBuZhi || lpRI->uBuZhi == 0) && (lpRI->uPercentage < uPercentage || lpRI->uPercentage == 0) && (lTalk > lpRI->uTalk || lpRI->uTalk == 0))
                         bYes = TRUE;
                     else
@@ -1993,7 +2113,7 @@ BOOL SearchSMZDM(REMINDITEM* lpRI, BOOL bList, int iPage, BOOL bSmzdmSearch)
                         ListView_SetItem(hList, &li);
                         li.pszText = szImg;
                         li.iSubItem = iSub++;
-                        //                    ListView_SetItem(hList, &li);
+                        ListView_SetItem(hList, &li);
                         wsprintf(sz, L"%d", lZhi);
                         li.pszText = sz;
                         li.iSubItem = iSub++;
@@ -2050,7 +2170,15 @@ BOOL SearchSMZDM(REMINDITEM* lpRI, BOOL bList, int iPage, BOOL bSmzdmSearch)
                                     wsprintf(wTitle, L"%d.%2.2d元 %s %s", p / 100, p % 100, szTitle, szBusiness);
                             }
                             else
-                                lstrcpy(wTitle, szTitle);
+                            {
+                                if(lpRI->bMemberPost)
+                                    lstrcpy(wTitle, szTitle);
+                                else
+                                {
+                                    int p = fPrice * 100;
+                                    wsprintf(wTitle, L"%d.%2.2d元 %s", p / 100, p % 100, szTitle);
+                                }
+                            }
                             if(lpRI->szKey[0]!=L'\0')
                                 wsprintf(wDescripe, L"~%s~ %s", lpRI->szKey, szDescripe);
                             else
@@ -2566,6 +2694,31 @@ LRESULT CALLBACK MainProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 						SetDlgItemText(hWnd, IDC_EDIT_MEMBER, sz);
                         return FALSE;
                     }
+                    else if (lnia->iSubItem == 8)
+                    {
+                        WCHAR wTitle[129], wDescripe[513], szLink[129], szImg[129];
+                        ListView_GetItemText(hList, lnia->iItem, 0, wTitle, 128);
+                        ListView_GetItemText(hList, lnia->iItem, 1, wDescripe, 512);
+                        ListView_GetItemText(hList, lnia->iItem, 10, szLink, 128);
+                        ListView_GetItemText(hList, lnia->iItem, 3, szImg, 128);
+						if (RemindSave.bBark)
+						{
+							SendBark(RemindSave.szBarkUrl, RemindSave.szBarkSound, wTitle, wDescripe, szLink, szImg);
+						}
+						if (RemindSave.bDingDing)
+						{
+							SendDingDing(RemindSave.szDingDingToken, wTitle, wDescripe, szLink, szImg);
+						}
+						if (RemindSave.bWeChat)
+						{
+							SendWeChatPusher(RemindSave.szWeChatUserID, wTitle, wDescripe, szLink, szImg);
+						}
+						if (RemindSave.bWxPusher)
+						{
+							SendWxPusher(RemindSave.szWxPusherUID, wTitle, wDescripe, szLink, szImg);
+						}
+                        return FALSE;
+                    }
                     else
                     {
                         ListView_GetItemText(hList, lnia->iItem, 10, sz, 256);
@@ -2731,6 +2884,15 @@ LRESULT CALLBACK MainProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                     for (int i = 1; i <= n; i++)
                     {
                         SearchSMZDM(&ri, TRUE, i + 1,FALSE);
+                    }
+                    if (ri.szMemberID[0] != L'\0')
+                    {
+                        UINT nCount = ListView_GetItemCount(hList);
+                        for (int i=0;i<nCount;i++)
+                        {
+                            CloseHandle(CreateThread(NULL, 0, GetZhiThreadProc, (PVOID)i, 0, 0));
+                        }
+                        
                     }
                 }
                 else if (!bGetData)
