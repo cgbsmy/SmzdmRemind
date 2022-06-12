@@ -167,6 +167,7 @@ HWND hComboTime;
 HWND hComboPage;
 HWND hComboSound;
 HWND hComboSendMode;
+HWND hComboSearch;
 HWND hComBoPercentage;
 HANDLE hMap = NULL;
 HANDLE hGetDataThread;
@@ -181,7 +182,10 @@ BOOL bResetTime = FALSE;//重新设置时间
 BOOL bGetData = FALSE;//是否获取数据中
 BOOL bNewTrayTips = FALSE;//新的通知样式
 WCHAR szWxPusherToken[] = L"AT_YGOXF3ZtPSkz5lkxhFUZ5ZkHOgrkKSdG";
-WCHAR szReminSave[] = L"SmzdmRemind.sav";
+WCHAR szRemindSave[] = L"SmzdmRemind.sav";
+WCHAR szRemindHtml[] = L"SmzdmRemind.html";
+WCHAR szRemindItem[] = L"SmzdmRemind.item";
+WCHAR szRemindList[] = L"SmzdmRemind.list";
 DWORD iTimes[] = { 1,3,5,10,15,30 };
 WCHAR szTimes[][5] = {L"1分钟",L"3分钟",L"5分钟",L"10分钟",L"15分钟",L"30分钟"};
 int mIDs[24] =          { 0,  183 ,   20057,  3949,       2537,       247,        241,      6753,               2897,       243,       8645,      257,       8912,        239,        4031,       20155,      269,           4033,           5108,       3981,        20383,      167 ,      153,    6255 };
@@ -189,6 +193,7 @@ WCHAR szBus[24][9] =    { L"" , L"京东",L"京喜",L"京东国际",L"天猫超�
 WCHAR szPage[9][2] = {L"1",L"2",L"3",L"4",L"5",L"6",L"7",L"8",L"9"};
 WCHAR szBarkSound[32][19] = {L"alarm", L"anticipate", L"bell", L"birdsong", L"bloom", L"calypso", L"chime", L"choo", L"descent", L"electronic", L"fanfare", L"glass", L"gotosleep", L"healthnotification", L"horn", L"ladder", L"mailsent", L"minuet", L"multiwayinvitation", L"newmail", L"newsflash", L"noir", L"paymentsuccess", L"shake", L"sherwoodforest", L"silence", L"spell", L"suspense", L"telegraph", L"tiptoes", L"typewriters", L"update"};
 WCHAR szSendMode[][9] = { L"按全局设置",L"打开网页",L"任务栏通知",L"企业微信",L"钉钉",L"Bark",L"WxPusher" };
+WCHAR szSearch[][5] = {L"列表视图",L"图文列表",L"进入网站"};
 int iPercentages[] = { 0,50,60,70,80,90 };
 WCHAR szPercentage[][3] = { L"",L"50",L"60",L"70",L"80",L"90" };
 // 此代码模块中包含的函数的前向声明:
@@ -218,6 +223,21 @@ typedef struct _REMINDITEM
     WCHAR szMemberID[12];//值友ID;
 }REMINDITEM;
 REMINDITEM* lpRemindItem = NULL;
+typedef struct _SMZDMITEM
+{
+    WCHAR szTitle[129];//标题
+    WCHAR szDescribe[513];//描述
+	WCHAR szLink[65];//商品链接
+	WCHAR szImg[129];//商品图片
+    WCHAR szBusiness[17];//平台
+	UINT lZhi;//值
+	UINT lBuZhi;//不值
+	UINT lStar;//收藏
+	UINT lTalk;//评论
+    float fPrice;//价格
+    SYSTEMTIME st;//时间
+    WCHAR szGoPath[513];//直达链接
+}SMZDMITEM;
 typedef struct _REMINDDATA
 {
 	BOOL bExit;
@@ -516,10 +536,103 @@ void EmptyProcessMemory(DWORD pID)
 	SetProcessWorkingSetSize(hProcess, -1, -1);
 	EmptyWorkingSet(hProcess);
 }
+void ItemToHtml(BOOL bList)
+{
+	WCHAR wHtmlStart[] = L"<!doctype html><html><head><style>::-webkit-scrollbar{width:0px;}table{width:1158px;table-layout:fixed;}div{width:206px;height:120px;text-overflow:ellipsis;overflow:auto;}</style><meta charset=\"utf-8\"><title>SmzdmRemind历史记录</title></head><body style=\"background-color:#eeeeee\"><table style=\"background-color:#eeeeee\" width=\"222\" align=\"center\" cellspacing=\"8\" cellpadding=\"8\"><tbody><tr style=\"background-color:#ffffff\" align=\"center\" valign=\"top\">";
+    WCHAR wHtmlLineFeed[] = L"</tr><tr style=\"background-color:#ffffff\" align=\"center\" valign=\"top\">";
+    WCHAR wHtmlEnd[] = L"</tr></tbody></table></body></html>";
+    HANDLE hFile = CreateFile(szRemindHtml, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_ARCHIVE, NULL);
+    if (hFile != INVALID_HANDLE_VALUE)
+    {
+		DWORD dwBytes = NULL;
+		const int UNICODE_TXT_FLG = 0xFEFF;  //UNICODE文本标示
+        WriteFile(hFile, &UNICODE_TXT_FLG, 2, &dwBytes, 0);
+		WriteFile(hFile, wHtmlStart, lstrlen(wHtmlStart)*2, &dwBytes, NULL);
+        int n = 0;
+        WCHAR sz[2048];
+        HANDLE hItem;
+        if(bList)
+            hItem= CreateFile(szRemindList, GENERIC_READ, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_ARCHIVE, NULL);
+        else
+            hItem= CreateFile(szRemindItem, GENERIC_READ, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_ARCHIVE, NULL);
+        if (hItem != INVALID_HANDLE_VALUE)
+        {
+            int nSI=0;
+            if (!bList)
+            {
+                nSI=GetFileSize(hItem, 0)/sizeof SMZDMITEM;
+            }
+            SMZDMITEM si;
+			while (TRUE)
+            {
+                if(!bList)
+                {
+					if (nSI == 0)
+						break;
+                    nSI--;
+                    SetFilePointer(hItem, nSI * sizeof SMZDMITEM, 0, FILE_BEGIN);
+                }
+                ReadFile(hItem, &si, sizeof SMZDMITEM, &dwBytes, NULL);
+                if (dwBytes)
+                {
+                    int p = si.fPrice * 100;
+                    wsprintf(sz, L"<td><a href=\"%s\"><img src=\"https://%s\" width=\"200\" height=\"200\"></a><small><b><p style=\"float:left;text-align:left;color:red\">%d.%2.2d元</b><br/><br/>值%d <span style=\"color:#000000\">值%d</span> 评%d</p><p style=\"text-align:right\">%2.2d-%2.2d %2.2d:%2.2d<br/><br/>%s</p><b><p>%s</p></b></small><font size=\"1\"><div style=\"text-align:left;color:#383838\">%s</div></font></td>",
+                        si.szLink, si.szImg,  p / 100, p % 100, si.lZhi,si.lBuZhi,si.lTalk, si.st.wMonth, si.st.wDay, si.st.wHour, si.st.wMinute,si.szBusiness, si.szTitle, si.szDescribe);
+                    WriteFile(hFile, sz, lstrlen(sz) * 2, &dwBytes, NULL);
+                    n++;
+                    if (n == 5)
+                    {
+                        n = 0;
+                        WriteFile(hFile, wHtmlLineFeed, lstrlen(wHtmlLineFeed) * 2, &dwBytes, NULL);
+                    }                    
+                }
+                else
+                    break;
+            }
+            CloseHandle(hItem);
+            WriteFile(hFile, wHtmlEnd, lstrlen(wHtmlEnd) * 2, &dwBytes, NULL);
+        }
+        else
+        {
+            CloseHandle(hFile);
+            return;
+        }
+        CloseHandle(hFile);
+    }
+    ShellExecute(NULL, L"open", szRemindHtml, NULL, NULL, SW_SHOW);
+}
+void WriteItem(BOOL bList,SMZDMITEM *si)
+{
+    HANDLE hFile;
+    if(bList)
+        hFile = CreateFile(szRemindList, GENERIC_WRITE, 0, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_ARCHIVE, NULL);
+    else
+        hFile = CreateFile(szRemindItem, GENERIC_WRITE|GENERIC_READ, 0, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_ARCHIVE, NULL);
+    if (hFile != INVALID_HANDLE_VALUE)
+    {
+        DWORD dwBytes = NULL;
+        if (!bList)
+        {
+            if (GetFileSize(hFile, 0) / sizeof SMZDMITEM >= 512)
+            {
+                SMZDMITEM* lpsi=new SMZDMITEM[256];
+                SetFilePointer(hFile, 256 * sizeof SMZDMITEM, 0, FILE_BEGIN);
+                ReadFile(hFile, lpsi, 256 * sizeof SMZDMITEM, &dwBytes, 0);
+                SetFilePointer(hFile,0, 0, FILE_BEGIN);
+                SetEndOfFile(hFile);
+                WriteFile(hFile, lpsi, 256 * sizeof SMZDMITEM, &dwBytes, 0);
+                delete[]lpsi;
+            }
+        }		
+        SetFilePointer(hFile, 0, 0, FILE_END);
+		WriteFile(hFile, si, sizeof SMZDMITEM, &dwBytes, NULL);
+        CloseHandle(hFile);
+    }
+}
 void ReadSet()
 {
 	SetToCurrentPath();
-	HANDLE hFile = CreateFile(szReminSave, GENERIC_READ, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_ARCHIVE, NULL);
+	HANDLE hFile = CreateFile(szRemindSave, GENERIC_READ, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_ARCHIVE, NULL);
     if (hFile!= INVALID_HANDLE_VALUE)
     {
         DWORD dwBytes;
@@ -542,7 +655,7 @@ void WriteSet(REMINDITEM*lpRI)
 	SetToCurrentPath();
     if (lpRI)
     {
-        HANDLE hFile = CreateFile(szReminSave, GENERIC_WRITE, 0, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_ARCHIVE, NULL);
+        HANDLE hFile = CreateFile(szRemindSave, GENERIC_WRITE, 0, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_ARCHIVE, NULL);
         if (hFile != INVALID_HANDLE_VALUE)
         {
 			DWORD dwBytes = NULL;
@@ -554,7 +667,7 @@ void WriteSet(REMINDITEM*lpRI)
     }
     else
     {
-        HANDLE hFile = CreateFile(szReminSave, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_ARCHIVE, NULL);
+        HANDLE hFile = CreateFile(szRemindSave, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_ARCHIVE, NULL);
         if (hFile!= INVALID_HANDLE_VALUE)
         {
             DWORD dwBytes = NULL;
@@ -1395,27 +1508,16 @@ BOOL SearchSMZDM(REMINDITEM* lpRI, BOOL bList, int iPage, BOOL bSmzdmSearch)
         WCHAR* szOutBuffer = new WCHAR[NETPAGESIZE];
         MultiByteToWideChar(CP_UTF8, 0, pszOutBuffer, -1, szOutBuffer, NETPAGESIZE);
         DWORD sl = strlen(pszOutBuffer);
+        SMZDMITEM SmzdmItem = { 0 };
         UINT iID = 0;
         WCHAR wID[10] = { 0 };
-        WCHAR szLink[64];//商品链接
-        WCHAR szImg[128];//商品图片
-        szImg[0] = L'\0';
-        WCHAR szTitle[128];//商品标题
-        float fPrice = 0;//价格
         //    WCHAR szPrice[8];
-        WCHAR szDescripe[512];//描述
-        szDescripe[0] = L'\0';
-        UINT lZhi = 0;
-        UINT lBuZhi = 0;
-        UINT lStar = 0;
-        UINT lTalk = 0;
-        WCHAR szGoPath[512];//直达链接
-        szGoPath[0] = L'\0';
         if (bList)
         {
             SendMessage(hList, WM_SETREDRAW, FALSE, FALSE);
             if (iPage == 0)
             {
+                DeleteFile(szRemindList);
                 ListView_DeleteAllItems(hList);
                 ListView_SetItemCount(hList, 81);
             }
@@ -1442,8 +1544,6 @@ BOOL SearchSMZDM(REMINDITEM* lpRI, BOOL bList, int iPage, BOOL bSmzdmSearch)
 */
 //        SYSTEMTIME st2;
 //        FileTimeToSystemTime((FILETIME*)&ft1, &st2);
-        WCHAR szBusiness[17];
-        szBusiness[0] = L'\0';
         WCHAR* cStart;
         if (lpRI->szMemberID[0] == L'\0')
             cStart = lstrstr(szOutBuffer, L"feed-row-wide");
@@ -1504,11 +1604,11 @@ BOOL SearchSMZDM(REMINDITEM* lpRI, BOOL bList, int iPage, BOOL bSmzdmSearch)
                                 {
                                     if (n == 63)
                                         n -= 6;
-                                    lstrcpy(szLink, L"https:");
-                                    lstrcpyn(szLink + 6, cLinkLeft, n);
+                                    lstrcpy(SmzdmItem.szLink, L"https:");
+                                    lstrcpyn(SmzdmItem.szLink + 6, cLinkLeft, n);
                                 }
                                 else
-                                    lstrcpyn(szLink, cLinkLeft, n);
+                                    lstrcpyn(SmzdmItem.szLink, cLinkLeft, n);
                             }
                         }
                     }
@@ -1525,7 +1625,7 @@ BOOL SearchSMZDM(REMINDITEM* lpRI, BOOL bList, int iPage, BOOL bSmzdmSearch)
                                 __int64 n = cImgRight - cImgLeft + 1;
                                 if (n > 127)
                                     n = 127;
-                                lstrcpyn(szImg, cImgLeft, n);
+                                lstrcpyn(SmzdmItem.szImg, cImgLeft, n);
                             }
                         }
                     }
@@ -1543,7 +1643,7 @@ BOOL SearchSMZDM(REMINDITEM* lpRI, BOOL bList, int iPage, BOOL bSmzdmSearch)
                                 __int64 n = cTitleRight - cTitleLeft + 1;
                                 if (n > 127)
                                     n = 127;
-                                lstrcpyn(szTitle, cTitleLeft, n);
+                                lstrcpyn(SmzdmItem.szTitle, cTitleLeft, n);
                             }
                         }
                     }
@@ -1554,7 +1654,7 @@ BOOL SearchSMZDM(REMINDITEM* lpRI, BOOL bList, int iPage, BOOL bSmzdmSearch)
                         if (cTalkLeft)
                         {
                             cTalkLeft += 2;
-                            lTalk = my_wtoi(cTalkLeft);
+                            SmzdmItem.lTalk = my_wtoi(cTalkLeft);
                         }
                     }
                     if (!lpRI->bMemberPost)//商品非文章
@@ -1566,7 +1666,7 @@ BOOL SearchSMZDM(REMINDITEM* lpRI, BOOL bList, int iPage, BOOL bSmzdmSearch)
                             if (cPriceLeft)
                             {
                                 cPriceLeft += 1;
-                                fPrice = my_wtof(cPriceLeft);
+                                SmzdmItem.fPrice = my_wtof(cPriceLeft);
                             }
                         }
 
@@ -1587,7 +1687,7 @@ BOOL SearchSMZDM(REMINDITEM* lpRI, BOOL bList, int iPage, BOOL bSmzdmSearch)
                                     size_t sCount = cDescripeRight - cDescripeLeft + 1;
                                     if (sCount >= 512)
                                         sCount = 511;
-                                    lstrcpyn(szDescripe, cDescripeLeft, sCount);
+                                    lstrcpyn(SmzdmItem.szDescribe, cDescripeLeft, sCount);
                                 }
                             }
                         }
@@ -1599,7 +1699,7 @@ BOOL SearchSMZDM(REMINDITEM* lpRI, BOOL bList, int iPage, BOOL bSmzdmSearch)
                             if (cZhiLeft)
                             {
                                 cZhiLeft += 5;
-                                lZhi = my_wtoi(cZhiLeft);
+                                SmzdmItem.lZhi = my_wtoi(cZhiLeft);
                             }
                         }
 
@@ -1610,7 +1710,7 @@ BOOL SearchSMZDM(REMINDITEM* lpRI, BOOL bList, int iPage, BOOL bSmzdmSearch)
                             if (cBuZhiLeft)
                             {
                                 cBuZhiLeft += 5;
-                                lBuZhi = my_wtoi(cBuZhiLeft);
+                                SmzdmItem.lBuZhi = my_wtoi(cBuZhiLeft);
                             }
                         }
 
@@ -1621,7 +1721,7 @@ BOOL SearchSMZDM(REMINDITEM* lpRI, BOOL bList, int iPage, BOOL bSmzdmSearch)
                             if (cStarLeft)
                             {
                                 cStarLeft += 5;
-                                lStar = my_wtoi(cStarLeft);
+                                SmzdmItem.lStar = my_wtoi(cStarLeft);
                             }
                         }
                         WCHAR* cGoPath = lstrstr(cStart, L"go_path");
@@ -1637,7 +1737,7 @@ BOOL SearchSMZDM(REMINDITEM* lpRI, BOOL bList, int iPage, BOOL bSmzdmSearch)
                                     __int64 n = cGoPathRight - cGoPathLeft + 1;
                                     if (n > 511)
                                         n = 511;
-                                    lstrcpyn(szGoPath, cGoPathLeft, n);
+                                    lstrcpyn(SmzdmItem.szGoPath, cGoPathLeft, n);
                                 }
                             }
                         }
@@ -1651,7 +1751,7 @@ BOOL SearchSMZDM(REMINDITEM* lpRI, BOOL bList, int iPage, BOOL bSmzdmSearch)
                             if (cZhiLeft)
                             {
                                 cZhiLeft += 8;
-                                lZhi = my_wtoi(cZhiLeft);
+                                SmzdmItem.lZhi = my_wtoi(cZhiLeft);
                             }
                         }
                         WCHAR* cStar = lstrstr(cStart, L"z-icon-star-o-thin");
@@ -1661,7 +1761,7 @@ BOOL SearchSMZDM(REMINDITEM* lpRI, BOOL bList, int iPage, BOOL bSmzdmSearch)
                             if (cStarLeft)
                             {
                                 cStarLeft += 5;
-                                lStar = my_wtoi(cStarLeft);
+                                SmzdmItem.lStar = my_wtoi(cStarLeft);
                             }
                         }
                         WCHAR* cBusiness = lstrstr(cStart, L"z-avatar-name");
@@ -1677,7 +1777,7 @@ BOOL SearchSMZDM(REMINDITEM* lpRI, BOOL bList, int iPage, BOOL bSmzdmSearch)
                                     __int64 n = cBusinessRight - cBusinessLeft + 1;
                                     if (n > 16)
                                         n = 16;
-                                    lstrcpyn(szBusiness, cBusinessLeft, n);
+                                    lstrcpyn(SmzdmItem.szBusiness, cBusinessLeft, n);
                                 }
                             }
                         }
@@ -1759,7 +1859,7 @@ BOOL SearchSMZDM(REMINDITEM* lpRI, BOOL bList, int iPage, BOOL bSmzdmSearch)
                                         __int64 n = cBusinessRight - cBusinessLeft + 1;
                                         if (n > 16)
                                             n = 16;
-                                        lstrcpyn(szBusiness, cBusinessLeft, n);
+                                        lstrcpyn(SmzdmItem.szBusiness, cBusinessLeft, n);
                                     }
                                 }
                             }
@@ -1773,7 +1873,7 @@ BOOL SearchSMZDM(REMINDITEM* lpRI, BOOL bList, int iPage, BOOL bSmzdmSearch)
 							WCHAR* cFilterRight = lstrstr(cFilterLeft, L" ");
 							if (cFilterRight)
 								cFilterRight[0] = L'\0';
-							if (lstrstr(szTitle, cFilterLeft) || lstrstr(szDescripe, cFilterLeft))
+							if (lstrstr(SmzdmItem.szTitle, cFilterLeft) || lstrstr(SmzdmItem.szDescribe, cFilterLeft))
 							{
 								if (cFilterRight)
 									cFilterRight[0] = L' ';
@@ -1815,7 +1915,7 @@ BOOL SearchSMZDM(REMINDITEM* lpRI, BOOL bList, int iPage, BOOL bSmzdmSearch)
                                 __int64 n = cImgRight - cImgLeft + 1;
                                 if (n > 127)
                                     n = 127;
-                                lstrcpyn(szImg, cImgLeft, n);
+                                lstrcpyn(SmzdmItem.szImg, cImgLeft, n);
                             }
                         }
                     }
@@ -1836,11 +1936,11 @@ BOOL SearchSMZDM(REMINDITEM* lpRI, BOOL bList, int iPage, BOOL bSmzdmSearch)
                                 {
                                     if (n == 63)
                                         n -= 6;
-                                    lstrcpy(szLink, L"https:");
-                                    lstrcpyn(szLink + 6, cLinkLeft, n);
+                                    lstrcpy(SmzdmItem.szLink, L"https:");
+                                    lstrcpyn(SmzdmItem.szLink + 6, cLinkLeft, n);
                                 }
                                 else
-                                    lstrcpyn(szLink, cLinkLeft, n);
+                                    lstrcpyn(SmzdmItem.szLink, cLinkLeft, n);
 
                             }
                         }
@@ -1881,7 +1981,7 @@ BOOL SearchSMZDM(REMINDITEM* lpRI, BOOL bList, int iPage, BOOL bSmzdmSearch)
                                         __int64 n = cTitleRight - cTitleLeft + 1;
                                         if (n > 127)
                                             n = 127;
-                                        lstrcpyn(szTitle, cTitleLeft, n);
+                                        lstrcpyn(SmzdmItem.szTitle, cTitleLeft, n);
                                     }
                                 }
                             }
@@ -1898,7 +1998,7 @@ BOOL SearchSMZDM(REMINDITEM* lpRI, BOOL bList, int iPage, BOOL bSmzdmSearch)
                                         __int64 n = cDescripeRight - cDescripeLeft + 1;
                                         if (n > 511)
                                             n = 511;
-                                        lstrcpyn(szDescripe, cDescripeLeft, n);
+                                        lstrcpyn(SmzdmItem.szDescribe, cDescripeLeft, n);
                                     }
                                 }
                             }
@@ -1925,7 +2025,7 @@ BOOL SearchSMZDM(REMINDITEM* lpRI, BOOL bList, int iPage, BOOL bSmzdmSearch)
                                     __int64 n = cTitleRight - cTitle + 1;
                                     if (n > 127)
                                         n = 127;
-                                    lstrcpyn(szTitle, cTitle, n);
+                                    lstrcpyn(SmzdmItem.szTitle, cTitle, n);
                                 }
                                 WCHAR* cPrice = lstrstr(cTitle, L"元");
                                 if (cPrice)
@@ -1936,8 +2036,8 @@ BOOL SearchSMZDM(REMINDITEM* lpRI, BOOL bList, int iPage, BOOL bSmzdmSearch)
                                         cPrice -= 1;
                                     }
                                     cPrice += 1;
-                                    fPrice = my_wtof(cPrice);
-                                    if ((fPrice > lpRI->uMaxPrice && lpRI->uMaxPrice != 0) || (fPrice < lpRI->uMinPrice && lpRI->uMinPrice != 0))
+                                    SmzdmItem.fPrice = my_wtof(cPrice);
+                                    if ((SmzdmItem.fPrice > lpRI->uMaxPrice && lpRI->uMaxPrice != 0) || (SmzdmItem.fPrice < lpRI->uMinPrice && lpRI->uMinPrice != 0))
                                         bContinue = TRUE;
                                 }
                             }
@@ -1952,7 +2052,7 @@ BOOL SearchSMZDM(REMINDITEM* lpRI, BOOL bList, int iPage, BOOL bSmzdmSearch)
 							WCHAR* cKeyRight = lstrstr(cKeyLeft, L" ");
 							if (cKeyRight)
 								cKeyRight[0] = L'\0';
-							if (lstrstr(szTitle, cKeyLeft))
+							if (lstrstr(SmzdmItem.szTitle, cKeyLeft))
 							{
 								if (cKeyRight)
 									cKeyRight[0] = L' ';
@@ -1980,7 +2080,7 @@ BOOL SearchSMZDM(REMINDITEM* lpRI, BOOL bList, int iPage, BOOL bSmzdmSearch)
 							WCHAR* cFilterRight = lstrstr(cFilterLeft, L" ");
 							if (cFilterRight)
 								cFilterRight[0] = L'\0';
-							if (lstrstr(szTitle, cFilterLeft))
+							if (lstrstr(SmzdmItem.szTitle, cFilterLeft))
 							{
 								if (cFilterRight)
 									cFilterRight[0] = L' ';
@@ -2080,53 +2180,55 @@ BOOL SearchSMZDM(REMINDITEM* lpRI, BOOL bList, int iPage, BOOL bSmzdmSearch)
                 if (bZhi)
                 {
                     UINT uPercentage;
-                    if (lZhi == 0|| lBuZhi >= lZhi)
+                    if (SmzdmItem.lZhi == 0|| SmzdmItem.lBuZhi >= SmzdmItem.lZhi)
                         uPercentage = 0;
-                    else if (lBuZhi == 0)
+                    else if (SmzdmItem.lBuZhi == 0)
                         uPercentage = 100;
                     else
-                        uPercentage = lZhi*100 / (lZhi+lBuZhi);
-                    if ((lpRI->uZhi < lZhi || lpRI->uZhi == 0) && (lpRI->uBuZhi > lBuZhi || lpRI->uBuZhi == 0) && (lpRI->uPercentage < uPercentage || lpRI->uPercentage == 0) && (lTalk > lpRI->uTalk || lpRI->uTalk == 0))
+                        uPercentage = SmzdmItem.lZhi*100 / (SmzdmItem.lZhi+ SmzdmItem.lBuZhi);
+                    if ((lpRI->uZhi < SmzdmItem.lZhi || lpRI->uZhi == 0) && (lpRI->uBuZhi > SmzdmItem.lBuZhi || lpRI->uBuZhi == 0) && (lpRI->uPercentage < uPercentage || lpRI->uPercentage == 0) && (SmzdmItem.lTalk > lpRI->uTalk || lpRI->uTalk == 0))
                         bYes = TRUE;
                     else
                         bYes = FALSE;
                 }
                 if (bYes)
                 {
+                    SmzdmItem.st = st;
                     if (bList)
                     {
+                        WriteItem(TRUE, &SmzdmItem);
                         WCHAR sz[64];
                         LVITEM li = { 0 };
                         int iSub = 0;
                         li.mask = LVIF_TEXT;
-                        li.pszText = szTitle;
+                        li.pszText = SmzdmItem.szTitle;
                         li.iSubItem = iSub++;
                         li.iItem = ListView_GetItemCount(hList);
                         li.iItem = ListView_InsertItem(hList, &li);
-                        li.pszText = szDescripe;
+                        li.pszText = SmzdmItem.szDescribe;
                         li.iSubItem = iSub++;
                         //                    ListView_SetItem(hList, &li);
-                        int p = fPrice * 100;
+                        int p = SmzdmItem.fPrice * 100;
                         wsprintf(sz, L"%d.%2.2d", p / 100, p % 100);
                         li.pszText = sz;
                         li.iSubItem = iSub++;
                         ListView_SetItem(hList, &li);
-                        li.pszText = szImg;
+                        li.pszText = SmzdmItem.szImg;
                         li.iSubItem = iSub++;
                         ListView_SetItem(hList, &li);
-                        wsprintf(sz, L"%d", lZhi);
+                        wsprintf(sz, L"%d", SmzdmItem.lZhi);
                         li.pszText = sz;
                         li.iSubItem = iSub++;
                         ListView_SetItem(hList, &li);
-                        wsprintf(sz, L"%d", lBuZhi);
+                        wsprintf(sz, L"%d", SmzdmItem.lBuZhi);
                         li.pszText = sz;
                         li.iSubItem = iSub++;
                         ListView_SetItem(hList, &li);
-                        wsprintf(sz, L"%d", lStar);
+                        wsprintf(sz, L"%d", SmzdmItem.lStar);
                         li.pszText = sz;
                         li.iSubItem = iSub++;
                         ListView_SetItem(hList, &li);
-                        wsprintf(sz, L"%d", lTalk);
+                        wsprintf(sz, L"%d", SmzdmItem.lTalk);
                         li.pszText = sz;
                         li.iSubItem = iSub++;
                         ListView_SetItem(hList, &li);
@@ -2134,13 +2236,13 @@ BOOL SearchSMZDM(REMINDITEM* lpRI, BOOL bList, int iPage, BOOL bSmzdmSearch)
                         li.pszText = sz;
                         li.iSubItem = iSub++;
                         ListView_SetItem(hList, &li);
-                        li.pszText = szBusiness;
+                        li.pszText = SmzdmItem.szBusiness;
                         li.iSubItem = iSub++;
                         ListView_SetItem(hList, &li);
-                        li.pszText = szLink;
+                        li.pszText = SmzdmItem.szLink;
                         li.iSubItem = iSub++;
                         ListView_SetItem(hList, &li);
-                        li.pszText = szGoPath;
+                        li.pszText = SmzdmItem.szGoPath;
                         li.iSubItem = iSub++;
                         ListView_SetItem(hList, &li);
 
@@ -2161,28 +2263,30 @@ BOOL SearchSMZDM(REMINDITEM* lpRI, BOOL bList, int iPage, BOOL bSmzdmSearch)
                         if (bYes)
                         {
                             WCHAR wTitle[192], wDescripe[666];
-                            int p = fPrice * 100;
+                            int p = SmzdmItem.fPrice * 100;
                             if (lpRI->szMemberID[0] == L'\0')
                             {
                                 if (p == 0)
-                                    wsprintf(wTitle, L"%s %s", szTitle, szBusiness);
+                                    wsprintf(wTitle, L"%s %s", SmzdmItem.szTitle, SmzdmItem.szBusiness);
                                 else
-                                    wsprintf(wTitle, L"%d.%2.2d元 %s %s", p / 100, p % 100, szTitle, szBusiness);
+                                    wsprintf(wTitle, L"%d.%2.2d元 %s %s", p / 100, p % 100, SmzdmItem.szTitle, SmzdmItem.szBusiness);
                             }
                             else
                             {
                                 if(lpRI->bMemberPost)
-                                    lstrcpy(wTitle, szTitle);
+                                    lstrcpy(wTitle, SmzdmItem.szTitle);
                                 else
                                 {
-                                    int p = fPrice * 100;
-                                    wsprintf(wTitle, L"%d.%2.2d元 %s", p / 100, p % 100, szTitle);
+                                    int p = SmzdmItem.fPrice * 100;
+                                    wsprintf(wTitle, L"%d.%2.2d元 %s", p / 100, p % 100, SmzdmItem.szTitle);
                                 }
                             }
                             if(lpRI->szKey[0]!=L'\0')
-                                wsprintf(wDescripe, L"~%s~ %s", lpRI->szKey, szDescripe);
+                                wsprintf(wDescripe, L"~%s~ %s", lpRI->szKey, SmzdmItem.szDescribe);
                             else
-                                wsprintf(wDescripe, L"~%s~ %s", lpRI->szMember, szDescripe);
+                                wsprintf(wDescripe, L"~%s~ %s", lpRI->szMember, SmzdmItem.szDescribe);
+                            lstrcpyn(SmzdmItem.szDescribe, wDescripe, 512);
+                            WriteItem(FALSE, &SmzdmItem);
                             if ((RemindSave.bTips && lpRI->iSend == 0) || lpRI->iSend == 2)
                             {
                                 if (bNewTrayTips)
@@ -2191,7 +2295,7 @@ BOOL SearchSMZDM(REMINDITEM* lpRI, BOOL bList, int iPage, BOOL bSmzdmSearch)
                                     WCHAR wImg[MAX_PATH];
                                     GetCurrentDirectory(MAX_PATH, wImg);
                                     lstrcat(wImg, L"\\cache\\");
-                                    WCHAR* wFileLeft = lstrstr(szImg + 2, L"/");;
+                                    WCHAR* wFileLeft = lstrstr(SmzdmItem.szImg + 2, L"/");;
                                     while (true)
                                     {
                                         wFileLeft += 1;
@@ -2202,8 +2306,8 @@ BOOL SearchSMZDM(REMINDITEM* lpRI, BOOL bList, int iPage, BOOL bSmzdmSearch)
                                             wFileLeft = wFileRight;
                                     }
                                     lstrcat(wImg, wFileLeft);
-                                    winhttpDownload(szImg, wImg);
-                                    ShowToast(wTitle, wDescripe, wImg, szLink);
+                                    winhttpDownload(SmzdmItem.szImg, wImg);
+                                    ShowToast(wTitle, wDescripe, wImg, SmzdmItem.szLink);
                                 }
                                 else
                                 {
@@ -2224,22 +2328,22 @@ BOOL SearchSMZDM(REMINDITEM* lpRI, BOOL bList, int iPage, BOOL bSmzdmSearch)
                             }
                             if ((RemindSave.bBark && lpRI->iSend == 0) || lpRI->iSend == 5)
                             {
-                                SendBark(RemindSave.szBarkUrl, RemindSave.szBarkSound, wTitle, wDescripe, szLink, szImg);
+                                SendBark(RemindSave.szBarkUrl, RemindSave.szBarkSound, wTitle, wDescripe, SmzdmItem.szLink, SmzdmItem.szImg);
                             }
                             if ((RemindSave.bDingDing && lpRI->iSend == 0) || lpRI->iSend == 4)
                             {
-                                SendDingDing(RemindSave.szDingDingToken, wTitle, wDescripe, szLink, szImg);
+                                SendDingDing(RemindSave.szDingDingToken, wTitle, wDescripe, SmzdmItem.szLink, SmzdmItem.szImg);
                             }
                             if ((RemindSave.bWeChat && lpRI->iSend == 0) || lpRI->iSend == 3)
                             {
-                                SendWeChatPusher(RemindSave.szWeChatUserID, wTitle, wDescripe, szLink, szImg);
+                                SendWeChatPusher(RemindSave.szWeChatUserID, wTitle, wDescripe, SmzdmItem.szLink, SmzdmItem.szImg);
                             }
                             if ((RemindSave.bWxPusher && lpRI->iSend == 0) || lpRI->iSend == 6)
                             {
-                                SendWxPusher(RemindSave.szWxPusherUID, wTitle, wDescripe, szLink, szImg);
+                                SendWxPusher(RemindSave.szWxPusherUID, wTitle, wDescripe, SmzdmItem.szLink, SmzdmItem.szImg);
                             }
                             if ((RemindSave.bDirectly && lpRI->iSend == 0) || lpRI->iSend == 1)
-                                ShellExecute(NULL, L"open", szLink, NULL, NULL, SW_SHOWNOACTIVATE);
+                                ShellExecute(NULL, L"open", SmzdmItem.szLink, NULL, NULL, SW_SHOWNOACTIVATE);
                         }
                     }
                 }
@@ -2526,6 +2630,12 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 		SendMessage(hComBoPercentage, CB_ADDSTRING, NULL, (LPARAM)szPercentage[i]);
 	}
 	SendMessage(hComBoPercentage, CB_SETCURSEL, 0, 0);
+	hComboSearch = GetDlgItem(hMain, IDC_COMBO_SEARCH);
+	for (int i = 0; i < 3; i++)
+	{
+		SendMessage(hComboSearch, CB_ADDSTRING, NULL, (LPARAM)szSearch[i]);
+	}
+	SendMessage(hComboSearch, CB_SETCURSEL, 0, 0);
     ReadSet();
     SendMessage(hComboTime, CB_SETCURSEL, RemindSave.iTime, NULL);
     SendMessage(hComboPage, CB_SETCURSEL, RemindSave.iPage, NULL);
@@ -2644,13 +2754,15 @@ LRESULT CALLBACK MainProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
     case WM_IAWENTRAY:
 //        if (HIWORD(lParam) == nid.uID)
         {
-            if (LOWORD(lParam) == WM_LBUTTONDOWN || LOWORD(lParam) == WM_RBUTTONDOWN)
-            {
-                SetFocus(GetDlgItem(hMain, IDC_KEY));
-                ShowWindow(hMain, SW_SHOW);
-                SetForeground(hMain);
-                bInit = FALSE;
-            }
+        if (LOWORD(lParam) == WM_LBUTTONDOWN)
+        {
+            SetFocus(GetDlgItem(hMain, IDC_KEY));
+            ShowWindow(hMain, SW_SHOW);
+            SetForeground(hMain);
+            bInit = FALSE;
+        }
+        else if (LOWORD(lParam) == WM_RBUTTONDOWN)
+            ItemToHtml(FALSE);
             else if (LOWORD(lParam) == NIN_BALLOONUSERCLICK && !RemindSave.bDirectly)
             {
                 WCHAR sz[128];
@@ -2807,6 +2919,78 @@ LRESULT CALLBACK MainProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                 ShellExecute(NULL, L"open", szLink[wmId-IDC_BUTTON_LINK1], NULL, NULL, SW_SHOW);
             }
                 break;
+            case IDC_HISTORY:
+            {
+                int nSearch = SendMessage(hComboSearch, CB_GETCURSEL, 0, 0);
+                if(nSearch==1)
+                    ItemToHtml(FALSE);
+                ListView_DeleteAllItems(hList);
+                HANDLE hFile = CreateFile(szRemindItem, GENERIC_READ, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_ARCHIVE, NULL);
+                if (hFile != INVALID_HANDLE_VALUE)
+                {
+                    while (TRUE)
+                    {
+                        DWORD dwBytes = 0;
+                        SMZDMITEM SmzdmItem;
+                        ReadFile(hFile, &SmzdmItem, sizeof SMZDMITEM, &dwBytes, NULL);
+                        if (dwBytes == 0)
+                        {
+                            CloseHandle(hFile);
+                            break;
+                        }
+                        WCHAR sz[64];
+                        LVITEM li = { 0 };
+                        int iSub = 0;
+                        li.mask = LVIF_TEXT;
+                        li.pszText = SmzdmItem.szTitle;
+                        li.iSubItem = iSub++;
+                        li.iItem = 0;
+                        li.iItem = ListView_InsertItem(hList, &li);
+                        li.pszText = SmzdmItem.szDescribe;
+                        li.iSubItem = iSub++;
+                        //                    ListView_SetItem(hList, &li);
+                        int p = SmzdmItem.fPrice * 100;
+                        wsprintf(sz, L"%d.%2.2d", p / 100, p % 100);
+                        li.pszText = sz;
+                        li.iSubItem = iSub++;
+                        ListView_SetItem(hList, &li);
+                        li.pszText = SmzdmItem.szImg;
+                        li.iSubItem = iSub++;
+                        ListView_SetItem(hList, &li);
+                        wsprintf(sz, L"%d", SmzdmItem.lZhi);
+                        li.pszText = sz;
+                        li.iSubItem = iSub++;
+                        ListView_SetItem(hList, &li);
+                        wsprintf(sz, L"%d", SmzdmItem.lBuZhi);
+                        li.pszText = sz;
+                        li.iSubItem = iSub++;
+                        ListView_SetItem(hList, &li);
+                        wsprintf(sz, L"%d", SmzdmItem.lStar);
+                        li.pszText = sz;
+                        li.iSubItem = iSub++;
+                        ListView_SetItem(hList, &li);
+                        wsprintf(sz, L"%d", SmzdmItem.lTalk);
+                        li.pszText = sz;
+                        li.iSubItem = iSub++;
+                        ListView_SetItem(hList, &li);
+                        wsprintf(sz, L"%d-%2.2d-%2.2d %2.2d:%2.2d", SmzdmItem.st.wYear, SmzdmItem.st.wMonth, SmzdmItem.st.wDay, SmzdmItem.st.wHour, SmzdmItem.st.wMinute);
+                        li.pszText = sz;
+                        li.iSubItem = iSub++;
+                        ListView_SetItem(hList, &li);
+                        li.pszText = SmzdmItem.szBusiness;
+                        li.iSubItem = iSub++;
+                        ListView_SetItem(hList, &li);
+                        li.pszText = SmzdmItem.szLink;
+                        li.iSubItem = iSub++;
+                        ListView_SetItem(hList, &li);
+                        li.pszText = SmzdmItem.szGoPath;
+                        li.iSubItem = iSub++;
+                        ListView_SetItem(hList, &li);
+
+                    }
+                }
+                break;
+            }
 /*
             case IDC_BUTTON_MEMBER:
             {
@@ -2821,7 +3005,6 @@ LRESULT CALLBACK MainProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             case IDC_REMIND:
             case IDC_OUR_REMIND:
             case IDC_SEARCH:
-            case IDC_SMZDM_SEARCH:
             {
                 bInit = TRUE;
                 REMINDITEM ri={0};
@@ -2873,7 +3056,8 @@ LRESULT CALLBACK MainProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                     ri.uPercentage = ri.uPercentage * 10 + 40;
 //                ri.uPercentage = GetDlgItemInt(hWnd, IDC_EDIT_PERCENTAGE, NULL, FALSE);
                 ri.uTalk = GetDlgItemInt(hWnd, IDC_EDIT_TALK, NULL, FALSE);
-                if (wmId == IDC_SMZDM_SEARCH)
+                int nSearch=SendMessage(hComboSearch, CB_GETCURSEL, 0, 0);
+                if (nSearch==2)
                 {
                     SearchSMZDM(&ri, TRUE, 0, TRUE);
                 }
@@ -2894,6 +3078,8 @@ LRESULT CALLBACK MainProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                         }
                         
                     }
+                    if(nSearch==1)
+                        ItemToHtml(TRUE);
                 }
                 else if (!bGetData)
                 {
