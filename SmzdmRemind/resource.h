@@ -41,7 +41,6 @@
 #define IDC_ACCESS_TOKEN                1028
 #define IDC_CHECK_BARK                  1029
 #define IDC_OUR_REMIND                  1030
-#define IDC_OUR_REMIND2                 1031
 #define IDC_HISTORY                     1031
 #define IDC_CHECK_POST                  1032
 #define IDC_BUTTON_LINK1                1033
@@ -53,6 +52,8 @@
 #define IDC_BUTTON_LINK7                1039
 #define IDC_BUTTON_LINK8                1040
 #define IDC_STATIC_COUNTDOWN            1041
+#define IDC_UID2                        1042
+#define IDC_COOKIE                      1042
 #define IDC_BARK_URL                    1043
 #define IDC_COMBO_SOUND                 1044
 #define IDC_COMBO_SEND                  1046
