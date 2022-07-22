@@ -182,6 +182,7 @@ BOOL bResetTime = FALSE;//重新设置时间
 BOOL bGetData = FALSE;//是否获取数据中
 BOOL bNewTrayTips = FALSE;//新的通知样式
 WCHAR szWxPusherToken[] = L"AT_YGOXF3ZtPSkz5lkxhFUZ5ZkHOgrkKSdG";
+WCHAR szUserAgent[] = L"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/103.0.5060.114 Safari/537.36 Edg/103.0.1264.62";
 WCHAR szRemindSave[] = L"SmzdmRemind.sav";
 WCHAR szRemindHtml[] = L"SmzdmRemind.html";
 WCHAR szRemindItem[] = L"SmzdmRemind.item";
@@ -538,7 +539,13 @@ void EmptyProcessMemory(DWORD pID)
 }
 void ItemToHtml(BOOL bList)
 {
-	WCHAR wHtmlStart[] = L"<!doctype html><html><head><style>::-webkit-scrollbar{width:0px;}table{width:1158px;table-layout:fixed;}div{width:206px;height:120px;text-overflow:ellipsis;overflow:auto;}</style><meta charset=\"utf-8\"><title>SmzdmRemind历史记录</title></head><body style=\"background-color:#eeeeee\"><table style=\"background-color:#eeeeee\" width=\"222\" align=\"center\" cellspacing=\"8\" cellpadding=\"8\"><tbody><tr style=\"background-color:#ffffff\" align=\"center\" valign=\"top\">";
+/*
+    WCHAR szProtocol[] = L"URL:SmzdmRemind Protocol";
+    WCHAR szProtocolName[] = L"URL Protocol";
+    SHSetValue(HKEY_CLASSES_ROOT, L"SmzdmRemind", L"@", REG_SZ, szDProtocol,sizeof szDProtocol);
+    SHSetValue(HKEY_CLASSES_ROOT, L"SmzdmRemind", szProtocolName, REG_SZ, L"", 0);
+*/
+	WCHAR wHtmlStart[] = L"<!doctype html><html><head><style>button{width:200px;height:30px;background-color:#F05656;color:#ffffff;border:0px;}::-webkit-scrollbar{width:0px;}table{width:1128px;table-layout:fixed;}div{height:120px;text-overflow:ellipsis;overflow:auto;}</style><meta charset=\"utf-8\"><title>SmzdmRemind历史记录</title></head><body style=\"background-color:#eeeeee\"><table style=\"background-color:#eeeeee\" width=\"216\" align=\"center\" cellspacing=\"8\" cellpadding=\"8\"><tbody><tr style=\"background-color:#ffffff\" align=\"center\" valign=\"top\">";
     WCHAR wHtmlLineFeed[] = L"</tr><tr style=\"background-color:#ffffff\" align=\"center\" valign=\"top\">";
     WCHAR wHtmlEnd[] = L"</tr></tbody></table></body></html>";
     HANDLE hFile = CreateFile(szRemindHtml, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_ARCHIVE, NULL);
@@ -548,8 +555,7 @@ void ItemToHtml(BOOL bList)
 		const int UNICODE_TXT_FLG = 0xFEFF;  //UNICODE文本标示
         WriteFile(hFile, &UNICODE_TXT_FLG, 2, &dwBytes, 0);
 		WriteFile(hFile, wHtmlStart, lstrlen(wHtmlStart)*2, &dwBytes, NULL);
-        int n = 0;
-        WCHAR sz[2048];
+        int n = 0;        
         HANDLE hItem;
         if(bList)
             hItem= CreateFile(szRemindList, GENERIC_READ, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_ARCHIVE, NULL);
@@ -576,8 +582,19 @@ void ItemToHtml(BOOL bList)
                 if (dwBytes)
                 {
                     int p = si.fPrice * 100;
-                    wsprintf(sz, L"<td><a href=\"%s\"><img src=\"https://%s\" width=\"200\" height=\"200\"></a><small><b><p style=\"float:left;text-align:left;color:red\">%d.%2.2d元</b><br/><br/>值%d <span style=\"color:#000000\">值%d</span> 评%d</p><p style=\"text-align:right\">%2.2d-%2.2d %2.2d:%2.2d<br/><br/>%s</p><b><p>%s</p></b></small><font size=\"1\"><div style=\"text-align:left;color:#383838\">%s</div></font></td>",
-                        si.szLink, si.szImg,  p / 100, p % 100, si.lZhi,si.lBuZhi,si.lTalk, si.st.wMonth, si.st.wDay, si.st.wHour, si.st.wMinute,si.szBusiness, si.szTitle, si.szDescribe);
+                    WCHAR sz[8192] = L"<td><a target=\"_blank\" href=\"";
+                    lstrcat(sz, si.szLink);
+                    lstrcat(sz, L"\"><img src=\"https://");
+                    lstrcat(sz, si.szImg);
+                    lstrcat(sz, L"\" width=\"200\" height=\"200\"></a><a target=\"_blank\" href=\"");
+                    lstrcat(sz, si.szGoPath);
+                    lstrcat(sz, L"\"><button>直达链接</button><br/></a><small><b><p style=\"float:left;text-align:left;color:red\">");
+                    WCHAR sz1[2048];
+                    wsprintf(sz1, L"%d.%2.2d元</b><br/><br/>值%d <span style=\"color:#000000\">值%d</span> 评%d</p><p style=\"text-align:right\">%2.2d-%2.2d %2.2d:%2.2d<br/><br/>%s</p><b><p>%s</p></b></small><font size=\"1\"><div style=\"text-align:left;color:#383838\">",
+                        p / 100, p % 100, si.lZhi,si.lBuZhi,si.lTalk, si.st.wMonth, si.st.wDay, si.st.wHour, si.st.wMinute,si.szBusiness, si.szTitle);
+                    lstrcat(sz, sz1);
+                    lstrcat(sz, si.szDescribe);
+                    lstrcat(sz, L"</div></font></td>");
                     WriteFile(hFile, sz, lstrlen(sz) * 2, &dwBytes, NULL);
                     n++;
                     if (n == 5)
@@ -748,7 +765,7 @@ BOOL SendIYUU(wchar_t* szTOKEN, wchar_t* szTitle, wchar_t* szContent, wchar_t* s
     BOOL  bResults = FALSE;
     HINTERNET  hSession = NULL, hConnect = NULL, hRequest = NULL;
     // Use WinHttpOpen to obtain a session handle.
-    hSession = WinHttpOpen(L"IYUU", WINHTTP_ACCESS_TYPE_NO_PROXY, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, NULL);
+    hSession = WinHttpOpen(szUserAgent, WINHTTP_ACCESS_TYPE_NO_PROXY, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, NULL);
     // Specify an HTTP server.
     if (hSession)
         hConnect = WinHttpConnect(hSession, L"iyuu.cn", INTERNET_DEFAULT_HTTPS_PORT, 0);
@@ -813,7 +830,7 @@ BOOL SendBark(wchar_t* szBarkUrl,wchar_t* szBarkSound,wchar_t* szTitle, wchar_t*
 	BOOL  bResults = FALSE;
 	HINTERNET  hSession = NULL, hConnect = NULL, hRequest = NULL;
 	// Use WinHttpOpen to obtain a session handle.
-	hSession = WinHttpOpen(L"Bark", WINHTTP_ACCESS_TYPE_NO_PROXY, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, NULL);
+	hSession = WinHttpOpen(szUserAgent, WINHTTP_ACCESS_TYPE_NO_PROXY, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, NULL);
     WCHAR wDomain[128];
     WCHAR *wDomainLeft = lstrstr(szBarkUrl, L"//");
     UINT uPort = INTERNET_DEFAULT_HTTPS_PORT;
@@ -894,7 +911,7 @@ BOOL GetWeChatToken(wchar_t* corpid, wchar_t *corpsecret,wchar_t * access_token)
 	BOOL  bResults = FALSE;
 	HINTERNET  hSession = NULL, hConnect = NULL, hRequest = NULL;
 	// Use WinHttpOpen to obtain a session handle.
-	hSession = WinHttpOpen(L"WeChatPusher", WINHTTP_ACCESS_TYPE_NO_PROXY, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, NULL);
+	hSession = WinHttpOpen(szUserAgent, WINHTTP_ACCESS_TYPE_NO_PROXY, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, NULL);
 	// Specify an HTTP server.
 	if (hSession)
 		hConnect = WinHttpConnect(hSession, L"qyapi.weixin.qq.com", INTERNET_DEFAULT_HTTPS_PORT, 0);
@@ -935,6 +952,7 @@ BOOL GetWeChatToken(wchar_t* corpid, wchar_t *corpsecret,wchar_t * access_token)
 		} while (dwSize != 0);
         WCHAR szOutBuffer[2048] = { 0 };
 		MultiByteToWideChar(CP_UTF8, 0, pszOutBuffer, -1, szOutBuffer, 2048);
+//        MessageBox(hMain, szOutBuffer, L"调试", MB_OK);
         WCHAR *cToken = lstrstr(szOutBuffer, L"access_token");
         if (cToken)
         {
@@ -964,7 +982,7 @@ BOOL SendWeChatPusher(wchar_t* uid, wchar_t* szTitle, wchar_t* szContent, wchar_
     BOOL  bResults = FALSE;
     HINTERNET  hSession = NULL, hConnect = NULL, hRequest = NULL;
     // Use WinHttpOpen to obtain a session handle.
-    hSession = WinHttpOpen(L"DingDing", WINHTTP_ACCESS_TYPE_NO_PROXY, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, NULL);
+    hSession = WinHttpOpen(szUserAgent, WINHTTP_ACCESS_TYPE_NO_PROXY, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, NULL);
     // Specify an HTTP server.
     if (hSession)
         hConnect = WinHttpConnect(hSession, L"qyapi.weixin.qq.com", INTERNET_DEFAULT_HTTPS_PORT, 0);
@@ -1011,6 +1029,11 @@ BOOL SendWeChatPusher(wchar_t* uid, wchar_t* szTitle, wchar_t* szContent, wchar_
             if (!dwDownloaded)
                 break;
         } while (dwSize != 0);
+/*
+		WCHAR szOutBuffer[2048] = { 0 };
+		MultiByteToWideChar(CP_UTF8, 0, pszOutBuffer, -1, szOutBuffer, 2048);
+        MessageBox(hMain, szOutBuffer, L"调试", MB_OK);
+*/
     }
     if (hRequest) WinHttpCloseHandle(hRequest);
     if (hConnect) WinHttpCloseHandle(hConnect);
@@ -1034,7 +1057,7 @@ BOOL SendDingDing(wchar_t* access_token, wchar_t* szTitle, wchar_t* szContent, w
 	BOOL  bResults = FALSE;
 	HINTERNET  hSession = NULL, hConnect = NULL, hRequest = NULL;
 	// Use WinHttpOpen to obtain a session handle.
-	hSession = WinHttpOpen(L"DingDing", WINHTTP_ACCESS_TYPE_NO_PROXY, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, NULL);
+	hSession = WinHttpOpen(szUserAgent, WINHTTP_ACCESS_TYPE_NO_PROXY, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, NULL);
 	// Specify an HTTP server.
 	if (hSession)
 		hConnect = WinHttpConnect(hSession, L"oapi.dingtalk.com", INTERNET_DEFAULT_HTTPS_PORT, 0);
@@ -1071,7 +1094,7 @@ BOOL SendWxPusher(wchar_t* uid, wchar_t* szTitle, wchar_t* szContent,wchar_t *sz
 	BOOL  bResults = FALSE;
 	HINTERNET  hSession = NULL, hConnect = NULL, hRequest = NULL;
 	// Use WinHttpOpen to obtain a session handle.
-	hSession = WinHttpOpen(L"WxPusher", WINHTTP_ACCESS_TYPE_NO_PROXY, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, NULL);
+	hSession = WinHttpOpen(szUserAgent, WINHTTP_ACCESS_TYPE_NO_PROXY, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, NULL);
 	// Specify an HTTP server.
 	if (hSession)
 		hConnect = WinHttpConnect(hSession, L"wxpusher.zjiecode.com",INTERNET_DEFAULT_HTTPS_PORT, 0);
@@ -1120,7 +1143,7 @@ void GetMember(WCHAR*szMember,WCHAR*szMemberID)
 	BOOL  bResults = FALSE;
 	HINTERNET  hSession = NULL, hConnect = NULL, hRequest = NULL;
 	// Use WinHttpOpen to obtain a session handle.
-	hSession = WinHttpOpen(L"GetMember", WINHTTP_ACCESS_TYPE_NO_PROXY, NULL, NULL, NULL);
+    hSession = WinHttpOpen(szUserAgent, WINHTTP_ACCESS_TYPE_NO_PROXY, NULL, NULL, NULL);
 	if (rovi.dwMajorVersion == 6 && rovi.dwMinorVersion == 1)//WIN 7 开启TLS1.2
 	{
 		DWORD flags = WINHTTP_FLAG_SECURE_PROTOCOL_TLS1_2;
@@ -1224,7 +1247,7 @@ BOOL GetMemberZhiStarTalk(WCHAR* wUrl, UINT* uZhi, UINT* uBuZhi, UINT* uStar, UI
 	WCHAR szHost[128];
 	lstrcpyn(szHost, wHost, wUrlPath - wHost + 1);
 	// Use WinHttpOpen to obtain a session handle.
-	hSession = WinHttpOpen(L"Remind", WINHTTP_ACCESS_TYPE_NO_PROXY, NULL, NULL, NULL);
+    hSession = WinHttpOpen(szUserAgent, WINHTTP_ACCESS_TYPE_NO_PROXY, NULL, NULL, NULL);
 	if (rovi.dwMajorVersion == 6 && rovi.dwMinorVersion == 1)//WIN 7 开启TLS1.2
 	{
 		DWORD flags = WINHTTP_FLAG_SECURE_PROTOCOL_TLS1_2;
@@ -1450,7 +1473,7 @@ BOOL SearchSMZDM(REMINDITEM* lpRI, BOOL bList, int iPage, BOOL bSmzdmSearch)
     BOOL  bResults = FALSE;
     HINTERNET  hSession = NULL, hConnect = NULL, hRequest = NULL;
     // Use WinHttpOpen to obtain a session handle.
-    hSession = WinHttpOpen(L"Remind", WINHTTP_ACCESS_TYPE_NO_PROXY, NULL, NULL, NULL);
+    hSession = WinHttpOpen(szUserAgent, WINHTTP_ACCESS_TYPE_NO_PROXY, NULL, NULL, NULL);
     if (rovi.dwMajorVersion == 6 && rovi.dwMinorVersion == 1)//WIN 7 开启TLS1.2
     {
         DWORD flags = WINHTTP_FLAG_SECURE_PROTOCOL_TLS1_2;
@@ -1475,6 +1498,11 @@ BOOL SearchSMZDM(REMINDITEM* lpRI, BOOL bList, int iPage, BOOL bSmzdmSearch)
             SECURITY_FLAG_IGNORE_CERT_WRONG_USAGE;
         WinHttpSetOption(hRequest, WINHTTP_OPTION_SECURITY_FLAGS, &dwSecFlag, sizeof(dwSecFlag));
     }
+/*
+	WCHAR szCookie[4096] = L"Cookie: ";
+	GetDlgItemText(hMain, IDC_COOKIE, &szCookie[8], 4096);
+	WinHttpAddRequestHeaders(hRequest, szCookie, lstrlen(szCookie), WINHTTP_ADDREQ_FLAG_ADD);
+*/
     // Send a request.
     if (hRequest)
     {
@@ -1529,7 +1557,7 @@ BOOL SearchSMZDM(REMINDITEM* lpRI, BOOL bList, int iPage, BOOL bSmzdmSearch)
         ULONGLONG ft1, ft2;
         GetLocalTime(&st);
         SystemTimeToFileTime(&st, (LPFILETIME)&ft1);
-        ft1 -= (ULONGLONG)3600 * 10000000;
+        ft1 -= (ULONGLONG)108000000000;//三小时内
 /*
         if (bOpen == FALSE)
         {
@@ -2194,6 +2222,8 @@ BOOL SearchSMZDM(REMINDITEM* lpRI, BOOL bList, int iPage, BOOL bSmzdmSearch)
                 if (bYes)
                 {
                     SmzdmItem.st = st;
+                    if (lpRI->bMemberPost)
+                        lstrcpy(SmzdmItem.szGoPath, SmzdmItem.szLink);
                     if (bList)
                     {
                         WriteItem(TRUE, &SmzdmItem);
@@ -2635,7 +2665,7 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 	{
 		SendMessage(hComboSearch, CB_ADDSTRING, NULL, (LPARAM)szSearch[i]);
 	}
-	SendMessage(hComboSearch, CB_SETCURSEL, 0, 0);
+	SendMessage(hComboSearch, CB_SETCURSEL, 1, 0);
     ReadSet();
     SendMessage(hComboTime, CB_SETCURSEL, RemindSave.iTime, NULL);
     SendMessage(hComboPage, CB_SETCURSEL, RemindSave.iPage, NULL);
