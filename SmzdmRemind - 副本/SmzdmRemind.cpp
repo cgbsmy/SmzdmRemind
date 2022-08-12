@@ -16,39 +16,6 @@
 #include "commctrl.h"
 #include "psapi.h"
 
-#include <strsafe.h>
-#include <io.h>
-#include <stdlib.h>
-#include <string>
-#include <tchar.h>
-#include <wrl.h>
-#include <wil/com.h>
-#include <AccCtrl.h>
-#include <AclAPI.h>
-
-#include "webView2.h"
-
-using namespace Microsoft::WRL;
-
-// Pointer to WebViewController
-static wil::com_ptr<ICoreWebView2Controller> webviewController1;
-static wil::com_ptr<ICoreWebView2Controller> webviewController2;
-// Pointer to WebView window
-static wil::com_ptr<ICoreWebView2> webviewWindow1;
-static wil::com_ptr<ICoreWebView2> webviewWindow2;
-
-EventRegistrationToken m_navCompletedToken1 = {};
-EventRegistrationToken m_navCompletedToken2 = {};
-
-typedef struct WEBSTRUCT
-{
-	BOOL bWebRun[2];
-	BOOL bWebGet[2];
-	WCHAR url[2][4096];
-	WCHAR wSource[2][1024 * 1024 * 3];
-}_WEBSTRUCT;
-WEBSTRUCT WebStruct;
-
 typedef BOOL (WINAPI* pfnShowToast)(WCHAR* szTitle, WCHAR* szBody, WCHAR* szImagePath, WCHAR* szLink);
 pfnShowToast ShowToast;
 
@@ -192,7 +159,6 @@ HINSTANCE hInst;                                // 当前实例
 HANDLE hMutex = NULL;
 HMODULE hWintoast;
 HWND hMain;
-HWND hWeb;
 HWND hSetting;
 HWND hList;
 HWND hListRemind;
@@ -234,9 +200,6 @@ WCHAR szPercentage[][3] = { L"",L"50",L"60",L"70",L"80",L"90" };
 // 此代码模块中包含的函数的前向声明:
 BOOL                InitInstance(HINSTANCE, int);
 LRESULT CALLBACK    MainProc(HWND, UINT, WPARAM, LPARAM);
-
-LRESULT CALLBACK    WebProc(HWND, UINT, WPARAM, LPARAM);
-
 typedef struct _REMINDITEM
 {
     BOOL bNotUse;//暂不获取
@@ -279,7 +242,7 @@ typedef struct _SMZDMITEM
 typedef struct _REMINDDATA
 {
 	BOOL bExit;
-	WCHAR szWeChatToken[512];
+    WCHAR szWeChatToken[512];
 }REMINDDATA;
 REMINDDATA* lpRemindData;
 DWORD riSize = 0;
@@ -367,8 +330,8 @@ int CALLBACK CompareFunc(LPARAM lParam1, LPARAM lParam2, LPARAM lParamSort)
 		WCHAR sz1[129], sz2[129];
 		ListView_GetItemText(hList, lParam1, lParamSort, sz1, 128);
 		ListView_GetItemText(hList, lParam2, lParamSort, sz2, 128);
-        float l1 = _wtof(sz1);
-        float l2 = _wtof(sz2);
+        float l1 = my_wtof(sz1);
+        float l2 = my_wtof(sz2);
         if (l1 == l2)
             return 0;
         else if (l1 > l2)
@@ -449,22 +412,34 @@ void UrlUTF8(WCHAR* wstr,WCHAR * wout)
 	int len = strlen(szUtf8);
 	for (int i = 0; i < len; i++)
 	{
-		if (isalnum((BYTE)szUtf8[i])) //判断字符中是否有数组或者英文
+		if (_isalnum((BYTE)szUtf8[i])) //判断字符中是否有数组或者英文
 		{
 			char tempbuff[2] = { 0 };
 			wsprintfA(tempbuff, "%c", (BYTE)szUtf8[i]);
-            strcat_s(szout,tempbuff);
+#ifdef NDEBUG
+            strcat(szout,tempbuff);
+#else
+            strcat_s(szout, tempbuff);
+#endif
 		}
 		else if ((BYTE)szUtf8[i]==' ')
 		{
+#ifdef NDEBUG
+            strcat(szout, "+");
+#else
             strcat_s(szout, "+");
+#endif
             
 		}
 		else
 		{
 			char tempbuff[4];
 			wsprintfA(tempbuff, "%%%X%X", ((BYTE)szUtf8[i]) >> 4, ((BYTE)szUtf8[i]) % 16);
+#ifdef NDEBUG
+			strcat(szout, tempbuff);
+#else
 			strcat_s(szout, tempbuff);
+#endif
 		}
 	}
     ::MultiByteToWideChar(CP_UTF8, NULL, szout, 1024, wout, 1024);
@@ -624,7 +599,7 @@ void ItemToHtml(BOOL bList)
                     lstrcat(sz, L"\" width=\"200\" height=\"200\"></a><a target=\"_blank\" href=\"");
                     lstrcat(sz, si.szGoPath);
                     if (si.szTitle[127] == L'~')
-                        lstrcat(sz, L"\"><button style=\"background-color:#3282F6\">上次看到这里</button><br/></a><small><b><p style=\"float:left;text-align:left;color:red\">");
+                        lstrcat(sz, L"\"><button style=\"background-color:#808080\">上次看到这里</button><br/></a><small><b><p style=\"float:left;text-align:left;color:red\">");
                     else
                         lstrcat(sz, L"\"><button style=\"background-color:#F05656\">直达链接</button><br/></a><small><b><p style=\"float:left;text-align:left;color:red\">");
                     WCHAR sz1[2048];
@@ -886,7 +861,7 @@ BOOL SendBark(wchar_t* szBarkUrl,wchar_t* szBarkSound,wchar_t* szTitle, wchar_t*
     WCHAR* wDomainRight = lstrstr(wDomainLeft, L":");
     if (wDomainRight)
     {
-        uPort = _wtoi(wDomainRight+1);
+        uPort = my_wtoi(wDomainRight+1);
 
     }
     else
@@ -1030,7 +1005,7 @@ BOOL SendWeChatPusher(wchar_t* uid, wchar_t* szTitle, wchar_t* szContent, wchar_
     if (hSession)
         hConnect = WinHttpConnect(hSession, L"qyapi.weixin.qq.com", INTERNET_DEFAULT_HTTPS_PORT, 0);
     WCHAR szGet[1024] = L"/cgi-bin/message/send?access_token=";
-    lstrcat(szGet, lpRemindData->szWeChatToken);
+    lstrcat(szGet, WebStruct.szWeChatToken);
     // Create an HTTP request handle.
     if (hConnect)
         hRequest = WinHttpOpenRequest(hConnect, L"POST", szGet, NULL, WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, WINHTTP_FLAG_SECURE);
@@ -1081,11 +1056,11 @@ BOOL SendWeChatPusher(wchar_t* uid, wchar_t* szTitle, wchar_t* szContent, wchar_
     if (hRequest) WinHttpCloseHandle(hRequest);
     if (hConnect) WinHttpCloseHandle(hConnect);
     if (hSession) WinHttpCloseHandle(hSession);
-    if (strstr(pszOutBuffer, "access_token"))
+    if (xstrstr(pszOutBuffer, "access_token"))
     {
-        if (lpRemindData->szWeChatToken[0] != L'~')
+        if (WebStruct.szWeChatToken[0] != L'~')
         {
-            GetWeChatToken(RemindSave.szWeChatID, RemindSave.szWeChatSecret, lpRemindData->szWeChatToken);
+            GetWeChatToken(RemindSave.szWeChatID, RemindSave.szWeChatSecret, WebStruct.szWeChatToken);
             SendWeChatPusher(uid, szTitle, szContent, szUrl,szImg);
         }
         return FALSE;
@@ -1237,11 +1212,11 @@ void GetMember(WCHAR*szMember,WCHAR*szMemberID)
             if (!dwDownloaded)
                 break;
         } while (dwSize != 0);
-        char *cMember = strstr(pszOutBuffer, "member/");
+        char *cMember = xstrstr(pszOutBuffer, "member/");
         if (cMember)
         {
             cMember += 7;
-            char* cMemberRight = strstr(cMember, "/");
+            char* cMemberRight = xstrstr(cMember, "/");
             if (cMemberRight&&cMemberRight-cMember<12)
             {
                 cMemberRight[0] = L'\0';
@@ -1346,61 +1321,61 @@ BOOL GetMemberZhiStarTalk(WCHAR* wUrl, UINT* uZhi, UINT* uBuZhi, UINT* uStar, UI
         {
             char* cZhi;
             if(bPost)
-                cZhi = strstr(cStart, "feed-number");
+                cZhi = xstrstr(cStart, "feed-number");
             else
-                cZhi = strstr(cStart, "rating_worthy_num");
+                cZhi = xstrstr(cStart, "rating_worthy_num");
             if (cZhi)
             {
-                char *cZhiLeft = strstr(cZhi, ">");
+                char *cZhiLeft = xstrstr(cZhi, ">");
                 if (cZhiLeft)
                 {
                     cZhiLeft += 1;
-                    *uZhi = atoi(cZhiLeft);
+                    *uZhi = my_atoi(cZhiLeft);
                 }
             }
             if (!bPost)
             {
-                char* cBuZhi = strstr(cStart, "rating_unworthy_num");
+                char* cBuZhi = xstrstr(cStart, "rating_unworthy_num");
                 if (cBuZhi)
                 {
-					char* cBuZhiLeft = strstr(cBuZhi, ">");
+					char* cBuZhiLeft = xstrstr(cBuZhi, ">");
 					if (cBuZhiLeft)
 					{
 						cBuZhiLeft += 1;
-						*uBuZhi = atoi(cBuZhiLeft);
+						*uBuZhi = my_atoi(cBuZhiLeft);
 					}
                 }
             }
-            char* cStar = strstr(cStart, "\"icon-star-o");
+            char* cStar = xstrstr(cStart, "\"icon-star-o");
             if (cStar)
             {
-                char* cStarLeft = strstr(cStar, "span");
+                char* cStarLeft = xstrstr(cStar, "span");
                 if (cStarLeft)
                 {
-                    cStarLeft = strstr(cStarLeft, ">");
+                    cStarLeft = xstrstr(cStarLeft, ">");
                     if (cStarLeft)
                     {
                         cStarLeft += 1;
-                        *uStar = atoi(cStarLeft);
+                        *uStar = my_atoi(cStarLeft);
                     }
                 }
             }
             char* cTalk;
             if(bPost)
-                cTalk = strstr(cStart, "icon-comment-o");
+                cTalk = xstrstr(cStart, "icon-comment-o");
             else
-                cTalk = strstr(cStart, "icon-comment-o\"");
+                cTalk = xstrstr(cStart, "icon-comment-o\"");
             if (cTalk)
             {
                 char* cTalkLeft;
                 if(bPost)
-                    cTalkLeft = strstr(cTalk, "em>");
+                    cTalkLeft = xstrstr(cTalk, "em>");
                 else
-                    cTalkLeft = strstr(cTalk, "an>");
+                    cTalkLeft = xstrstr(cTalk, "an>");
                 if (cTalkLeft)
                 {
                     cTalkLeft += 3;
-                    *uTalk = atoi(cTalkLeft);
+                    *uTalk = my_atoi(cTalkLeft);
                 }
             }
         }
@@ -1430,7 +1405,7 @@ DWORD WINAPI GetZhiThreadProc(PVOID pParam)//获取网站数据线程
 		ListView_SetItemText(hList, i, 7, szUrl);
     return 0;
 }
-BOOL SearchSMZDM(REMINDITEM* lpRI, BOOL bList, int iPage, BOOL bSmzdmSearch,BOOL bSend)
+BOOL SearchSMZDM(REMINDITEM* lpRI, BOOL bList, int iPage, BOOL bSmzdmSearch)
 {
     WCHAR szGet[1024] = L"/?s=";
     WCHAR szUrlCode[1024];
@@ -1510,38 +1485,80 @@ BOOL SearchSMZDM(REMINDITEM* lpRI, BOOL bList, int iPage, BOOL bSmzdmSearch,BOOL
             wsprintf(sz, L"/p%d", iPage);
         lstrcat(szGet, sz);
     }
-    WCHAR * url;
-    LPCWSTR szOutBuffer;
-    if (bSend)
+    DWORD dwSize = 0;
+    DWORD dwDownloaded = 0;
+    char* pszOutBuffer = new char[NETPAGESIZE];
+    BOOL  bResults = FALSE;
+    HINTERNET  hSession = NULL, hConnect = NULL, hRequest = NULL;
+    // Use WinHttpOpen to obtain a session handle.
+    hSession = WinHttpOpen(szUserAgent, WINHTTP_ACCESS_TYPE_NO_PROXY, NULL, NULL, NULL);
+    if (rovi.dwMajorVersion == 6 && rovi.dwMinorVersion == 1)//WIN 7 开启TLS1.2
     {
-        url = WebStruct.url[0];
-        szOutBuffer = WebStruct.wSource[0];
+        DWORD flags = WINHTTP_FLAG_SECURE_PROTOCOL_TLS1_2;
+        WinHttpSetOption(hSession, WINHTTP_OPTION_SECURE_PROTOCOLS, &flags, sizeof(flags));
     }
-    else
+    // Specify an HTTP server.
+    if (hSession)
     {
-        url = WebStruct.url[1];
-        szOutBuffer = WebStruct.wSource[1];
+        if (lpRI->szMemberID[0] == L'\0')
+            hConnect = WinHttpConnect(hSession, L"search.smzdm.com", INTERNET_DEFAULT_HTTPS_PORT, 0);
+        else
+            hConnect = WinHttpConnect(hSession, L"zhiyou.smzdm.com", INTERNET_DEFAULT_HTTPS_PORT, 0);
     }
-	if (lpRI->szMemberID[0] == L'\0')
-		lstrcpy(url, L"view-source:https://search.smzdm.com");
-	else
-		lstrcpy(url, L"view-source:https://zhiyou.smzdm.com");
-    lstrcat(url, szGet);
-    if (bSend)
+    // Create an HTTP request handle.
+    if (hConnect)
+        hRequest = WinHttpOpenRequest(hConnect, L"GET", szGet, NULL, L"", WINHTTP_DEFAULT_ACCEPT_TYPES, WINHTTP_FLAG_SECURE);
+    if (rovi.dwMajorVersion == 6 && rovi.dwMinorVersion == 1)//WIN 7 开启TLS1.2
     {
-        WebStruct.bWebGet[0] = FALSE;
-        WebStruct.bWebRun[0] = TRUE;
-        while (WebStruct.bWebRun[0]) { Sleep(1); }
+        DWORD dwSecFlag = SECURITY_FLAG_IGNORE_CERT_CN_INVALID |
+            SECURITY_FLAG_IGNORE_CERT_DATE_INVALID |
+            SECURITY_FLAG_IGNORE_UNKNOWN_CA |
+            SECURITY_FLAG_IGNORE_CERT_WRONG_USAGE;
+        WinHttpSetOption(hRequest, WINHTTP_OPTION_SECURITY_FLAGS, &dwSecFlag, sizeof(dwSecFlag));
+    }
+/*
+	WCHAR szCookie[4096] = L"Cookie: ";
+	GetDlgItemText(hMain, IDC_COOKIE, &szCookie[8], 4096);
+	WinHttpAddRequestHeaders(hRequest, szCookie, lstrlen(szCookie), WINHTTP_ADDREQ_FLAG_ADD);
+*/
+    // Send a request.
+    if (hRequest)
+    {
+        bResults = WinHttpSendRequest(hRequest, WINHTTP_NO_ADDITIONAL_HEADERS, 0, WINHTTP_NO_REQUEST_DATA, 0, 0, 0);
+    }
 
-    }
-    else
+    // End the request.
+    if (bResults)
+        bResults = WinHttpReceiveResponse(hRequest, NULL);
+    DWORD dErr = GetLastError();
+    // Keep checking for data until there is nothing left.
+    size_t i = 0;
+    ZeroMemory(pszOutBuffer, NETPAGESIZE);
+    if (bResults)
     {
-        WebStruct.bWebGet[1] = FALSE;
-        WebStruct.bWebRun[1] = TRUE;
-        while (WebStruct.bWebRun[1]) { Sleep(1); }
-    }
-    {        
-//        DWORD sl = strlen(pszOutBuffer);
+        do
+        {
+            dwSize = 0;
+            WinHttpQueryDataAvailable(hRequest, &dwSize);
+            if (!dwSize)
+                break;
+            if (i + dwSize > NETPAGESIZE)
+                dwSize = NETPAGESIZE - i;
+            if (WinHttpReadData(hRequest, (LPVOID)&pszOutBuffer[i], dwSize, &dwDownloaded))
+            {
+                i = strlen(pszOutBuffer);
+            }
+            if (!dwDownloaded)
+                break;
+        } while (dwSize != 0);
+        WCHAR* szOutBuffer = new WCHAR[NETPAGESIZE];
+        MultiByteToWideChar(CP_UTF8, 0, pszOutBuffer, -1, szOutBuffer, NETPAGESIZE);
+        hRequest = WinHttpOpenRequest(hConnect, L"GET", szGet, NULL, L"", WINHTTP_DEFAULT_ACCEPT_TYPES, WINHTTP_FLAG_SECURE);
+        bResults = WinHttpSendRequest(hRequest, WINHTTP_NO_ADDITIONAL_HEADERS, 0, WINHTTP_NO_REQUEST_DATA, 0, 0, 0);
+        WinHttpReceiveResponse(hRequest, NULL);
+        WinHttpQueryDataAvailable(hRequest, &dwSize);
+        WinHttpReadData(hRequest, (LPVOID)&pszOutBuffer[0], dwSize, &dwDownloaded);
+        DWORD sl = strlen(pszOutBuffer);
         SMZDMITEM SmzdmItem = { 0 };
         UINT iID = 0;
         WCHAR wID[10] = { 0 };
@@ -1602,7 +1619,7 @@ BOOL SearchSMZDM(REMINDITEM* lpRI, BOOL bList, int iPage, BOOL bSmzdmSearch,BOOL
                         if (cIDLeft)
                         {
                             cIDLeft += 2;
-                            tid = _wtoi(cIDLeft);
+                            tid = my_wtoi(cIDLeft);
                             WCHAR wid[10];
                             WCHAR* cIDRight = lstrstr(cIDLeft, L"'");
                             if (cIDRight)
@@ -1628,7 +1645,7 @@ BOOL SearchSMZDM(REMINDITEM* lpRI, BOOL bList, int iPage, BOOL bSmzdmSearch,BOOL
                         if (cLinkLeft)
                         {
                             cLinkLeft += 1;
-                            WCHAR* cLinkRight = lstrstr(cLinkLeft, L"\\\"");
+                            WCHAR* cLinkRight = lstrstr(cLinkLeft, L"\"");
                             if (cLinkRight)
                             {
                                 __int64 n = cLinkRight - cLinkLeft + 1;
@@ -1653,7 +1670,7 @@ BOOL SearchSMZDM(REMINDITEM* lpRI, BOOL bList, int iPage, BOOL bSmzdmSearch,BOOL
                         if (cImgLeft)
                         {
                             cImgLeft += 2;
-                            WCHAR* cImgRight = lstrstr(cImgLeft, L"\\\"");
+                            WCHAR* cImgRight = lstrstr(cImgLeft, L"\"");
                             if (cImgRight)
                             {
                                 __int64 n = cImgRight - cImgLeft + 1;
@@ -1671,7 +1688,7 @@ BOOL SearchSMZDM(REMINDITEM* lpRI, BOOL bList, int iPage, BOOL bSmzdmSearch,BOOL
                         if (cTitleLeft)
                         {
                             cTitleLeft += 1;
-                            WCHAR* cTitleRight = lstrstr(cTitleLeft, L"\\\"");
+                            WCHAR* cTitleRight = lstrstr(cTitleLeft, L"\"");
                             if (cTitleRight)
                             {
                                 __int64 n = cTitleRight - cTitleLeft + 1;
@@ -1688,7 +1705,7 @@ BOOL SearchSMZDM(REMINDITEM* lpRI, BOOL bList, int iPage, BOOL bSmzdmSearch,BOOL
                         if (cTalkLeft)
                         {
                             cTalkLeft += 2;
-                            SmzdmItem.lTalk = _wtoi(cTalkLeft);
+                            SmzdmItem.lTalk = my_wtoi(cTalkLeft);
                         }
                     }
                     if (!lpRI->bMemberPost)//商品非文章
@@ -1700,7 +1717,7 @@ BOOL SearchSMZDM(REMINDITEM* lpRI, BOOL bList, int iPage, BOOL bSmzdmSearch,BOOL
                             if (cPriceLeft)
                             {
                                 cPriceLeft += 1;
-                                SmzdmItem.fPrice = _wtof(cPriceLeft);
+                                SmzdmItem.fPrice = my_wtof(cPriceLeft);
                             }
                         }
 
@@ -1711,13 +1728,11 @@ BOOL SearchSMZDM(REMINDITEM* lpRI, BOOL bList, int iPage, BOOL bSmzdmSearch,BOOL
                             if (cDescripeLeft)
                             {
                                 cDescripeLeft += 1;
-                                while (cDescripeLeft[0] == L' ' || cDescripeLeft[0] == L'\\')
+                                while (cDescripeLeft[0] == L' ' || cDescripeLeft[0] == L'\r' || cDescripeLeft[0] == L'\n')
                                 {
-                                    if(cDescripeLeft[0] != L' ')
-                                        cDescripeLeft += 1;
                                     cDescripeLeft += 1;
                                 }
-                                WCHAR* cDescripeRight = lstrstr(cDescripeLeft, L"\\u003C/div");
+                                WCHAR* cDescripeRight = lstrstr(cDescripeLeft, L"</div");
                                 if (cDescripeRight)
                                 {
                                     size_t sCount = cDescripeRight - cDescripeLeft + 1;
@@ -1735,7 +1750,7 @@ BOOL SearchSMZDM(REMINDITEM* lpRI, BOOL bList, int iPage, BOOL bSmzdmSearch,BOOL
                             if (cZhiLeft)
                             {
                                 cZhiLeft += 5;
-                                SmzdmItem.lZhi = _wtoi(cZhiLeft);
+                                SmzdmItem.lZhi = my_wtoi(cZhiLeft);
                             }
                         }
 
@@ -1746,7 +1761,7 @@ BOOL SearchSMZDM(REMINDITEM* lpRI, BOOL bList, int iPage, BOOL bSmzdmSearch,BOOL
                             if (cBuZhiLeft)
                             {
                                 cBuZhiLeft += 5;
-                                SmzdmItem.lBuZhi = _wtoi(cBuZhiLeft);
+                                SmzdmItem.lBuZhi = my_wtoi(cBuZhiLeft);
                             }
                         }
 
@@ -1757,7 +1772,7 @@ BOOL SearchSMZDM(REMINDITEM* lpRI, BOOL bList, int iPage, BOOL bSmzdmSearch,BOOL
                             if (cStarLeft)
                             {
                                 cStarLeft += 5;
-                                SmzdmItem.lStar = _wtoi(cStarLeft);
+                                SmzdmItem.lStar = my_wtoi(cStarLeft);
                             }
                         }
                         WCHAR* cGoPath = lstrstr(cStart, L"go_path");
@@ -1783,11 +1798,11 @@ BOOL SearchSMZDM(REMINDITEM* lpRI, BOOL bList, int iPage, BOOL bSmzdmSearch,BOOL
                         WCHAR* cZhi = lstrstr(cStart, L"z-icon-thumb-up-o-thin");
                         if (cZhi)
                         {
-                            WCHAR* cZhiLeft = lstrstr(cZhi, L"number\\\">");
+                            WCHAR* cZhiLeft = lstrstr(cZhi, L"number\">");
                             if (cZhiLeft)
                             {
                                 cZhiLeft += 8;
-                                SmzdmItem.lZhi = _wtoi(cZhiLeft);
+                                SmzdmItem.lZhi = my_wtoi(cZhiLeft);
                             }
                         }
                         WCHAR* cStar = lstrstr(cStart, L"z-icon-star-o-thin");
@@ -1797,7 +1812,7 @@ BOOL SearchSMZDM(REMINDITEM* lpRI, BOOL bList, int iPage, BOOL bSmzdmSearch,BOOL
                             if (cStarLeft)
                             {
                                 cStarLeft += 5;
-                                SmzdmItem.lStar = _wtoi(cStarLeft);
+                                SmzdmItem.lStar = my_wtoi(cStarLeft);
                             }
                         }
                         WCHAR* cBusiness = lstrstr(cStart, L"z-avatar-name");
@@ -1807,7 +1822,7 @@ BOOL SearchSMZDM(REMINDITEM* lpRI, BOOL bList, int iPage, BOOL bSmzdmSearch,BOOL
                             if (cBusinessLeft)
                             {
                                 cBusinessLeft += 1;
-                                WCHAR* cBusinessRight = lstrstr(cBusinessLeft, L"\\u003C/");
+                                WCHAR* cBusinessRight = lstrstr(cBusinessLeft, L"</");
                                 if (cBusinessRight)
                                 {
                                     __int64 n = cBusinessRight - cBusinessLeft + 1;
@@ -1830,7 +1845,7 @@ BOOL SearchSMZDM(REMINDITEM* lpRI, BOOL bList, int iPage, BOOL bSmzdmSearch,BOOL
                             {
                                 if (cDateLeft[3] == L'-')
                                 {
-                                    st.wYear = _wtoi(cDateLeft - 4);
+                                    st.wYear = my_wtoi(cDateLeft - 4);
                                     cDateLeft += 3;
                                     cTimeLeft = NULL;
                                     st.wHour = 0;
@@ -1838,15 +1853,15 @@ BOOL SearchSMZDM(REMINDITEM* lpRI, BOOL bList, int iPage, BOOL bSmzdmSearch,BOOL
                                 }
                                 WCHAR* cDateRight = cDateLeft + 1;
                                 cDateLeft -= 2;
-                                st.wMonth = _wtoi(cDateLeft);
-                                st.wDay = _wtoi(cDateRight);
+                                st.wMonth = my_wtoi(cDateLeft);
+                                st.wDay = my_wtoi(cDateRight);
                             }
                             if (cTimeLeft)
                             {
                                 WCHAR* cTimeRight = cTimeLeft + 1;
                                 cTimeLeft -= 2;
-                                st.wHour = _wtoi(cTimeLeft);
-                                st.wMinute = _wtoi(cTimeRight);
+                                st.wHour = my_wtoi(cTimeLeft);
+                                st.wMinute = my_wtoi(cTimeRight);
                                 /*
                                                 while (cTimeRight[0] != L' ')
                                                 {
@@ -1876,17 +1891,15 @@ BOOL SearchSMZDM(REMINDITEM* lpRI, BOOL bList, int iPage, BOOL bSmzdmSearch,BOOL
                             //                                lpRI->uid = iID;
                             if (!lpRI->bMemberPost)
                             {
-                                WCHAR* cBusiness = lstrstr(cTime, L"\\u003Cspan");
+                                WCHAR* cBusiness = lstrstr(cTime, L"<span");
                                 if (cBusiness)
                                 {
                                     WCHAR* cBusinessLeft = lstrstr(cBusiness, L">");
                                     if (cBusinessLeft)
                                     {
                                         cBusinessLeft += 1;
-                                        while (cBusinessLeft[0] == L' ' || cBusinessLeft[0] == L'\\')
+                                        while (cBusinessLeft[0] == L' ' || cBusinessLeft[0] == L'\r' || cBusinessLeft[0] == L'\n')
                                         {
-                                            if(cBusinessLeft[0]!=L' ')
-                                                cBusinessLeft += 1;
                                             cBusinessLeft += 1;
                                         }
                                         WCHAR* cBusinessRight = cBusinessLeft;
@@ -1947,7 +1960,7 @@ BOOL SearchSMZDM(REMINDITEM* lpRI, BOOL bList, int iPage, BOOL bSmzdmSearch,BOOL
                         if (cImgLeft)
                         {
                             cImgLeft += 2;
-                            WCHAR* cImgRight = lstrstr(cImgLeft, L"\\\"");
+                            WCHAR* cImgRight = lstrstr(cImgLeft, L"\"");
                             if (cImgRight)
                             {
                                 __int64 n = cImgRight - cImgLeft + 1;
@@ -1964,7 +1977,7 @@ BOOL SearchSMZDM(REMINDITEM* lpRI, BOOL bList, int iPage, BOOL bSmzdmSearch,BOOL
                         if (cLinkLeft)
                         {
                             cLinkLeft += 1;
-                            WCHAR* cLinkRight = lstrstr(cLinkLeft, L"\\\"");
+                            WCHAR* cLinkRight = lstrstr(cLinkLeft, L"\"");
                             if (cLinkRight)
                             {
                                 __int64 n = cLinkRight - cLinkLeft + 1;
@@ -1991,7 +2004,7 @@ BOOL SearchSMZDM(REMINDITEM* lpRI, BOOL bList, int iPage, BOOL bSmzdmSearch,BOOL
                             WCHAR* cUidRight = lstrstr(cUid, L"/");
                             if (!lpRI->bMemberPost)
                             {
-                                tid = _wtoi(cUid);
+                                tid = my_wtoi(cUid);
                                 if (iID == 0)
                                     iID = tid;
                             }
@@ -2009,11 +2022,11 @@ BOOL SearchSMZDM(REMINDITEM* lpRI, BOOL bList, int iPage, BOOL bSmzdmSearch,BOOL
                             WCHAR* cTitle = lstrstr(cStart, L"pandect-content-title");
                             if (cTitle)
                             {
-                                WCHAR* cTitleLeft = lstrstr(cTitle, L"blank\\\">");
+                                WCHAR* cTitleLeft = lstrstr(cTitle, L"blank\">");
                                 if (cTitleLeft)
                                 {
-                                    cTitleLeft += 8;
-                                    WCHAR* cTitleRight = lstrstr(cTitleLeft, L"\\u003C/a");
+                                    cTitleLeft += 7;
+                                    WCHAR* cTitleRight = lstrstr(cTitleLeft, L"</a");
                                     if (cTitleRight)
                                     {
                                         __int64 n = cTitleRight - cTitleLeft + 1;
@@ -2030,7 +2043,7 @@ BOOL SearchSMZDM(REMINDITEM* lpRI, BOOL bList, int iPage, BOOL bSmzdmSearch,BOOL
                                 if (cDescripeLeft)
                                 {
                                     cDescripeLeft += 1;
-                                    WCHAR* cDescripeRight = lstrstr(cDescripeLeft, L"\\u003C/d");
+                                    WCHAR* cDescripeRight = lstrstr(cDescripeLeft, L"</d");
                                     if (cDescripeRight)
                                     {
                                         __int64 n = cDescripeRight - cDescripeLeft + 1;
@@ -2043,23 +2056,21 @@ BOOL SearchSMZDM(REMINDITEM* lpRI, BOOL bList, int iPage, BOOL bSmzdmSearch,BOOL
                         }
                         else
                         {
-                            WCHAR* cTitle1 = lstrstr(cLink, L"\\u003C/i>");
-                            WCHAR* cTitle2 = lstrstr(cLink, L"\\u003C/a>");
+                            WCHAR* cTitle1 = lstrstr(cLink, L"</i>");
+                            WCHAR* cTitle2 = lstrstr(cLink, L"</a>");
                             WCHAR* cTitle;
                             if (cTitle2 > cTitle1)
-                                cTitle = cTitle1 + 7;
+                                cTitle = cTitle1 + 2;
                             else
                                 cTitle = lstrstr(cLink, L"\">");
                             if (cTitle)
                             {
                                 cTitle += 2;
-                                while (cTitle[0] == L' ' || cTitle[0] == L'\\' )
+                                while (cTitle[0] == L' ' || cTitle[0] == L'\r' || cTitle[0] == L'\n')
                                 {
-                                    if(cTitle[0]!=L' ')
-                                        cTitle += 1;
                                     cTitle += 1;
                                 }
-                                WCHAR* cTitleRight = lstrstr(cTitle, L"\\u003C/");
+                                WCHAR* cTitleRight = lstrstr(cTitle, L"</");
                                 if (cTitleRight)
                                 {
                                     __int64 n = cTitleRight - cTitle + 1;
@@ -2076,7 +2087,7 @@ BOOL SearchSMZDM(REMINDITEM* lpRI, BOOL bList, int iPage, BOOL bSmzdmSearch,BOOL
                                         cPrice -= 1;
                                     }
                                     cPrice += 1;
-                                    SmzdmItem.fPrice = _wtof(cPrice);
+                                    SmzdmItem.fPrice = my_wtof(cPrice);
                                     if ((SmzdmItem.fPrice > lpRI->uMaxPrice && lpRI->uMaxPrice != 0) || (SmzdmItem.fPrice < lpRI->uMinPrice && lpRI->uMinPrice != 0))
                                         bContinue = TRUE;
                                 }
@@ -2164,7 +2175,7 @@ BOOL SearchSMZDM(REMINDITEM* lpRI, BOOL bList, int iPage, BOOL bSmzdmSearch,BOOL
                                     cTimeMin -= 1;
                                     while ((cTimeMin[0] >= L'0' && cTimeMin[0] <= L'9'))cTimeMin -= 1;
                                     cTimeMin += 1;
-                                    ft2 = _wtoi(cTimeMin);
+                                    ft2 = my_wtoi(cTimeMin);
                                     ft1 -= ft2 * 60 * 10000000;
                                 }
                                 else if (cTimeHour)
@@ -2172,7 +2183,7 @@ BOOL SearchSMZDM(REMINDITEM* lpRI, BOOL bList, int iPage, BOOL bSmzdmSearch,BOOL
                                     cTimeHour -= 1;
                                     while ((cTimeHour[0] >= L'0' && cTimeHour[0] <= L'9'))cTimeHour -= 1;
                                     cTimeHour += 1;
-                                    int n = _wtoi(cTimeHour);
+                                    int n = my_wtoi(cTimeHour);
                                     for (int i = 0; i < n; i++)
                                     {
                                         ft1 -= 36000000000;
@@ -2189,7 +2200,7 @@ BOOL SearchSMZDM(REMINDITEM* lpRI, BOOL bList, int iPage, BOOL bSmzdmSearch,BOOL
                                 {
                                     if (cDateLeft[3] == L'-')
                                     {
-                                        st.wYear = _wtoi(cDateLeft - 4);
+                                        st.wYear = my_wtoi(cDateLeft - 4);
                                         cDateLeft += 3;
                                         cTimeLeft = NULL;
                                         st.wHour = 0;
@@ -2197,15 +2208,15 @@ BOOL SearchSMZDM(REMINDITEM* lpRI, BOOL bList, int iPage, BOOL bSmzdmSearch,BOOL
                                     }
                                     WCHAR* cDateRight = cDateLeft + 1;
                                     cDateLeft -= 2;
-                                    st.wMonth = _wtoi(cDateLeft);
-                                    st.wDay = _wtoi(cDateRight);
+                                    st.wMonth = my_wtoi(cDateLeft);
+                                    st.wDay = my_wtoi(cDateRight);
                                 }
                                 if (cTimeLeft)
                                 {
                                     WCHAR* cTimeRight = cTimeLeft + 1;
                                     cTimeLeft -= 2;
-                                    st.wHour = _wtoi(cTimeLeft);
-                                    st.wMinute = _wtoi(cTimeRight);
+                                    st.wHour = my_wtoi(cTimeLeft);
+                                    st.wMinute = my_wtoi(cTimeRight);
                                 }
                             }
                             SystemTimeToFileTime(&st, (FILETIME*)&ft2);
@@ -2403,11 +2414,20 @@ BOOL SearchSMZDM(REMINDITEM* lpRI, BOOL bList, int iPage, BOOL bSmzdmSearch,BOOL
 //            lpRI->uid = iID;
         if (wID[0] != L'\0'&&iPage==0)
             lstrcpy(lpRI->szID, wID);
+        delete[] szOutBuffer;
     }
-    return 0;
+    delete[] pszOutBuffer;
+    // Close any open handles.
+    if (hRequest) WinHttpCloseHandle(hRequest);
+    if (hConnect) WinHttpCloseHandle(hConnect);
+    if (hSession) WinHttpCloseHandle(hSession);
+    return bResults;
 }
 int iReset = 11;
-
+#ifndef _DEBUG
+extern "C" void WinMainCRTStartup()
+{
+#else
 int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
                      _In_opt_ HINSTANCE hPrevInstance,
                      _In_ LPWSTR    lpCmdLine,
@@ -2415,42 +2435,42 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
 {
 	UNREFERENCED_PARAMETER(hPrevInstance);
 	UNREFERENCED_PARAMETER(lpCmdLine);
-
+#endif
 #ifdef NDEBUG
 	if (OpenFileMapping(FILE_MAP_ALL_ACCESS, FALSE, szAppName) == NULL)/////////////////////////创建守护进程
 	{
-		HANDLE hMap = CreateFileMapping(INVALID_HANDLE_VALUE, NULL, PAGE_READWRITE, 0, sizeof(REMINDDATA), szAppName);
+		HANDLE hMap = CreateFileMapping(INVALID_HANDLE_VALUE, NULL, PAGE_READWRITE, 0, sizeof(BOOL), szAppName);
 		if (hMap)
 		{
 			lpRemindData = (REMINDDATA*)MapViewOfFile(hMap, FILE_MAP_ALL_ACCESS, 0, 0, sizeof(REMINDDATA));
 			ZeroMemory(lpRemindData, sizeof(REMINDDATA));
-			while (lpRemindData->bExit == FALSE && iReset != 0)
+			while (WebStruct.bExit == FALSE&&iReset!=0)
 			{
 				HANDLE hProcess;
 				RunProcess(0, 0, &hProcess);
-				EmptyProcessMemory(NULL);;
+                EmptyProcessMemory(NULL);;
 				WaitForSingleObject(hProcess, INFINITE);
 				CloseHandle(hProcess);
-				iReset--;
+                iReset--;
 			}
 			UnmapViewOfFile(lpRemindData);
 			CloseHandle(hMap);
 			ExitProcess(0);
-			return 0;
+			return;
 		}
 	}
 #endif
 	hMap = OpenFileMapping(FILE_MAP_ALL_ACCESS, FALSE, szAppName);
 	if (hMap)
 	{
-		lpRemindData = (REMINDDATA*)MapViewOfFile(hMap, FILE_MAP_ALL_ACCESS, 0, 0, sizeof(REMINDDATA));
+        lpRemindData = (REMINDDATA*)MapViewOfFile(hMap, FILE_MAP_ALL_ACCESS, 0, 0, sizeof(REMINDDATA));
 	}
 #ifdef NDEBUG
 #else
 	else
 	{
 		hMap = CreateFileMapping(INVALID_HANDLE_VALUE, NULL, PAGE_READWRITE, 0, sizeof(BOOL), szAppName);
-		lpRemindData = (REMINDDATA*)MapViewOfFile(hMap, FILE_MAP_ALL_ACCESS, 0, 0, sizeof(REMINDDATA));
+        lpRemindData = (REMINDDATA*)MapViewOfFile(hMap, FILE_MAP_ALL_ACCESS, 0, 0, sizeof(REMINDDATA));
 		ZeroMemory(lpRemindData, sizeof(REMINDDATA));
 	}
 #endif // !DAEMON
@@ -2474,8 +2494,13 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
             // 执行应用程序初始化:
             if (!InitInstance(hInst, SW_SHOW))
             {
+#if NDEBUG
+                return;
+#else
                 return 0;
+#endif
             }
+
 
             MSG msg;
 
@@ -2543,20 +2568,15 @@ DWORD WINAPI GetDataThreadProc(PVOID pParam)//获取网站数据线程
 			}
 		}
         bGetData = TRUE;
-        WCHAR tips[] = L"正在从网站获取并处理数据请稍后...";
-		
+		SetWindowText(hMain, L"正在从网站获取并处理数据请稍后...");
 		int n = riSize / sizeof REMINDITEM;
 		for (int i = 0; i < n; i++)
 		{
             if (!lpRemindItem[i].bNotUse)
             {
-                WCHAR wTips[256];
-                lstrcpy(wTips, tips);
-                lstrcat(wTips, lpRemindItem[i].szKey);
-                SetWindowText(hMain, wTips);
-                SearchSMZDM(&lpRemindItem[i], FALSE, FALSE, FALSE,TRUE);
+                SearchSMZDM(&lpRemindItem[i], FALSE, FALSE, FALSE);
                 if(!lpRemindItem[i].bMemberPost&&lpRemindItem[i].szMemberID[0]!=L'\0')
-                    SearchSMZDM(&lpRemindItem[i], FALSE, 2, FALSE,TRUE);
+                    SearchSMZDM(&lpRemindItem[i], FALSE, 2, FALSE);
             }
 		}
 		WriteSet(NULL);
@@ -2565,98 +2585,6 @@ DWORD WINAPI GetDataThreadProc(PVOID pParam)//获取网站数据线程
         bGetData = FALSE;
 	}
 	return TRUE;
-}
-
-DWORD WINAPI WebThreadProc(PVOID pParam)//获取网站数据线程
-{
-	hWeb = ::CreateDialog(hInst, MAKEINTRESOURCE(IDD_WEB), NULL, (DLGPROC)WebProc);
-//	ShowWindow(hWeb, SW_SHOW);
-//	UpdateWindow(hWeb);
-	HWND hWnd = hWeb;
-	HRESULT res1 = CreateCoreWebView2EnvironmentWithOptions(nullptr, nullptr, nullptr,
-		Callback<ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler>(
-			[hWnd](HRESULT result1, ICoreWebView2Environment* env1) -> HRESULT
-			{
-				env1->CreateCoreWebView2Controller(hWnd, Callback<ICoreWebView2CreateCoreWebView2ControllerCompletedHandler>(
-					[hWnd](HRESULT result1, ICoreWebView2Controller* controller1) -> HRESULT
-					{
-						if (controller1 != nullptr)
-						{
-							webviewController1 = controller1;
-							webviewController1->get_CoreWebView2(&webviewWindow1);
-						}
-						ICoreWebView2Settings* Settings1;
-						webviewWindow1->get_Settings(&Settings1);
-						Settings1->put_IsScriptEnabled(TRUE);
-						//						Settings->put_AreDefaultScriptDialogsEnabled(TRUE);
-						//						Settings->put_IsWebMessageEnabled(TRUE);                        
-						RECT bounds1;
-						GetClientRect(hWnd, &bounds1);
-						bounds1.right /= 2;
-						webviewController1->put_Bounds(bounds1);
-						webviewWindow1->add_NavigationCompleted(Callback<ICoreWebView2NavigationCompletedEventHandler>(
-							[hWnd](ICoreWebView2* webview1, ICoreWebView2NavigationCompletedEventArgs* args1) -> HRESULT
-							{
-								webviewWindow1->ExecuteScript(L"document.body.outerText;", Callback<ICoreWebView2ExecuteScriptCompletedHandler>(
-									[hWnd](HRESULT error1, PCWSTR result1) -> HRESULT
-									{
-										wcsncpy_s(WebStruct.wSource[0], result1, 1024 * 1024 * 3 - 1);
-										WebStruct.bWebRun[0] = FALSE;
-										WebStruct.bWebGet[0] = FALSE;
-										return S_OK;
-									}).Get());
-								return S_OK;
-							}).Get(), &m_navCompletedToken1);
-                        webviewWindow1->Navigate(L"https://search.smzdm.com/?c=home&s=%E6%89%8B%E6%9C%BA&mx_v=b");
-						return S_OK;
-					}).Get());
-				env1->CreateCoreWebView2Controller(hWnd, Callback<ICoreWebView2CreateCoreWebView2ControllerCompletedHandler>(
-					[hWnd](HRESULT result2, ICoreWebView2Controller* controller2) -> HRESULT
-					{
-						if (controller2 != nullptr)
-						{
-							webviewController2 = controller2;
-							webviewController2->get_CoreWebView2(&webviewWindow2);
-						}
-						ICoreWebView2Settings* Settings2;
-						webviewWindow2->get_Settings(&Settings2);
-						Settings2->put_IsScriptEnabled(TRUE);
-						Settings2->put_AreDefaultScriptDialogsEnabled(TRUE);
-						Settings2->put_IsWebMessageEnabled(TRUE);                        
-						RECT bounds2;
-						GetClientRect(hWnd, &bounds2);
-						bounds2.left = bounds2.right / 2 + 1;
-						webviewController2->put_Bounds(bounds2);
-						webviewWindow2->add_NavigationCompleted(Callback<ICoreWebView2NavigationCompletedEventHandler>(
-							[hWnd](ICoreWebView2* webview2, ICoreWebView2NavigationCompletedEventArgs* args2) -> HRESULT
-							{
-								webviewWindow2->ExecuteScript(L"document.body.outerText;", Callback<ICoreWebView2ExecuteScriptCompletedHandler>(
-									[hWnd](HRESULT error2, PCWSTR result2) -> HRESULT
-									{
-										wcsncpy_s(WebStruct.wSource[1], result2, 1024 * 1024 * 3 - 1);                                        
-										WebStruct.bWebRun[1] = FALSE;
-										WebStruct.bWebGet[1] = FALSE;
-										return S_OK;
-									}).Get());
-								return S_OK;
-							}).Get(), &m_navCompletedToken2);
-                        webviewWindow2->Navigate(L"https://search.smzdm.com/?c=home&s=%E6%89%8B%E6%9C%BA&mx_v=b");
-						return S_OK;                        
-					}).Get());                
-				return S_OK;
-			}).Get());
-	SetTimer(hWeb, 1, 33, NULL);
-
-    MSG msg;
-	while (GetMessage(&msg, nullptr, 0, 0))
-	{
-		if (!IsDialogMessage(hWeb, &msg))
-		{
-			TranslateMessage(&msg);
-			DispatchMessage(&msg);
-		}
-	}
-    return 0;
 }
 //
 //   函数: InitInstance(HINSTANCE, int)
@@ -2680,10 +2608,7 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
     iMain = LoadIcon(hInst, MAKEINTRESOURCE(IDI_SMZDMREMIND));
 //    iTray = LoadIcon(hInst, MAKEINTRESOURCE(IDI_TRAY));
     SetClassLongPtr(hMain, -14, (LONG_PTR)iMain);
-    SetClassLongPtr(hMain, -34, (LONG_PTR)iMain);        
-
-    CloseHandle(CreateThread(NULL, 0, WebThreadProc, 0, 0, 0));
-
+    SetClassLongPtr(hMain, -34, (LONG_PTR)iMain);
     //////////////////////////////////////////////////////////////////////////////////设置通知栏图标
     nid.cbSize = sizeof NOTIFYICONDATA;
     nid.uID = WM_IAWENTRAY;
@@ -2834,40 +2759,10 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 	WinToast::instance()->setAppUserModelId(szAppName);
 	bNewTrayTips = WinToast::instance()->initialize();
 */
-    bInit = FALSE;    
+    bInit = FALSE;
     return TRUE;
 }
-LRESULT CALLBACK WebProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
-{
-    switch (message)
-    {
-	case WM_TIMER:
-		if (wParam == 1)
-		{
-			if (webviewWindow1)
-			{
-				if (WebStruct.bWebRun[0] && !WebStruct.bWebGet[0])
-				{
-                    WebStruct.bWebGet[0] = TRUE;
-					webviewWindow1->Navigate(WebStruct.url[0]);
-				}
-			}
-			if (webviewWindow2)
-			{
-				if (WebStruct.bWebRun[1] && !WebStruct.bWebGet[1])
-				{
-                    WebStruct.bWebGet[1] = TRUE;
-					webviewWindow2->Navigate(WebStruct.url[1]);
-				}
-			}
-		}
-    case WM_INITDIALOG:
-    {
-    }
-    return TRUE;
-    }
-    return FALSE;
-}
+
 //
 //  函数: WndProc(HWND, UINT, WPARAM, LPARAM)
 //
@@ -3217,15 +3112,15 @@ LRESULT CALLBACK MainProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                 int nSearch=SendMessage(hComboSearch, CB_GETCURSEL, 0, 0);
                 if (nSearch==2)
                 {
-                    SearchSMZDM(&ri, TRUE, 0, TRUE,FALSE);
+                    SearchSMZDM(&ri, TRUE, 0, TRUE);
                 }
                 else if (wmId == IDC_SEARCH)
                 {
-                    SearchSMZDM(&ri, TRUE, 0,FALSE,FALSE);
+                    SearchSMZDM(&ri, TRUE, 0,FALSE);
                     int n = (int)SendMessage(hComboPage, CB_GETCURSEL, NULL, NULL);
                     for (int i = 1; i <= n; i++)
                     {
-                        SearchSMZDM(&ri, TRUE, i + 1,FALSE,FALSE);
+                        SearchSMZDM(&ri, TRUE, i + 1,FALSE);
                     }
                     if (ri.szMemberID[0] != L'\0')
                     {
@@ -3342,7 +3237,7 @@ LRESULT CALLBACK MainProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                 if (MessageBox(hMain, L"确定要退出？退出后将无法推送！", L"提示", MB_OKCANCEL | MB_ICONQUESTION) == IDOK)
                 {
                     DestroyWindow(hWnd);
-                    lpRemindData->bExit = TRUE;
+                    WebStruct.bExit = TRUE;
                 }
                 break;
             case IDCLOSE:
