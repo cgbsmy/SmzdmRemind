@@ -560,13 +560,15 @@ void ItemToHtml(BOOL bList)
         if(bList)
             hItem= CreateFile(szRemindList, GENERIC_READ, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_ARCHIVE, NULL);
         else
-            hItem= CreateFile(szRemindItem, GENERIC_READ, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_ARCHIVE, NULL);
+            hItem= CreateFile(szRemindItem, GENERIC_READ|GENERIC_WRITE, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_ARCHIVE, NULL);
         if (hItem != INVALID_HANDLE_VALUE)
         {
             int nSI=0;
+            int oSI = 0;
             if (!bList)
             {
                 nSI=GetFileSize(hItem, 0)/sizeof SMZDMITEM;
+                oSI = nSI - 1;
             }
             SMZDMITEM si;
 			while (TRUE)
@@ -579,6 +581,13 @@ void ItemToHtml(BOOL bList)
                     SetFilePointer(hItem, nSI * sizeof SMZDMITEM, 0, FILE_BEGIN);
                 }
                 ReadFile(hItem, &si, sizeof SMZDMITEM, &dwBytes, NULL);
+                if (oSI == nSI&&!bList)
+                {
+                    si.szTitle[127] = L'~';
+                    SetFilePointer(hItem, nSI * sizeof SMZDMITEM, 0, FILE_BEGIN);
+                    DWORD dwBytes = 0;
+                    WriteFile(hItem, &si, sizeof SMZDMITEM, &dwBytes, NULL);                    
+                }
                 if (dwBytes)
                 {
                     int p = si.fPrice * 100;
@@ -590,8 +599,13 @@ void ItemToHtml(BOOL bList)
                     lstrcat(sz, si.szGoPath);
                     lstrcat(sz, L"\"><button>直达链接</button><br/></a><small><b><p style=\"float:left;text-align:left;color:red\">");
                     WCHAR sz1[2048];
-                    wsprintf(sz1, L"%d.%2.2d元</b><br/><br/>值%d <span style=\"color:#000000\">值%d</span> 评%d</p><p style=\"text-align:right\">%2.2d-%2.2d %2.2d:%2.2d<br/><br/>%s</p><b><p>%s</p></b></small><font size=\"1\"><div style=\"text-align:left;color:#383838\">",
-                        p / 100, p % 100, si.lZhi,si.lBuZhi,si.lTalk, si.st.wMonth, si.st.wDay, si.st.wHour, si.st.wMinute,si.szBusiness, si.szTitle);
+                    wsprintf(sz1, L"%d.%2.2d元</b><br/><br/>值%d <span style=\"color:#000000\">值%d</span> 评%d</p><p style=\"text-align:right\">%2.2d-%2.2d %2.2d:%2.2d<br/><br/>%s</p><b>",
+                        p / 100, p % 100, si.lZhi,si.lBuZhi,si.lTalk, si.st.wMonth, si.st.wDay, si.st.wHour, si.st.wMinute,si.szBusiness);
+                    lstrcat(sz, sz1);
+                    if (si.szTitle[127] == L'~')
+                        wsprintf(sz1, L"<p style=\"color:#FF8080\">%s</p></b></small><font size=\"1\"><div style=\"text-align:left;color:#383838\">", si.szTitle);
+                    else
+                        wsprintf(sz1, L"<p>%s</p></b></small><font size=\"1\"><div style=\"text-align:left;color:#383838\">", si.szTitle);
                     lstrcat(sz, sz1);
                     lstrcat(sz, si.szDescribe);
                     lstrcat(sz, L"</div></font></td>");
