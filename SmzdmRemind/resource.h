@@ -56,12 +56,17 @@
 #define IDC_STATIC_COUNTDOWN            1041
 #define IDC_UID2                        1042
 #define IDC_COOKIE                      1042
+#define IDC_COOKIE1                     1042
 #define IDC_BARK_URL                    1043
 #define IDC_COMBO_SOUND                 1044
+#define IDC_CHECK_GREY                  1045
 #define IDC_COMBO_SEND                  1046
 #define IDC_COMBO_PERCENTAGE            1047
 #define IDC_CHECK_SCORE                 1048
 #define IDC_COMBO_SEARCH                1049
+#define IDC_SIGN_IN1                    1050
+#define IDC_COOKIE2                     1051
+#define IDC_SIGN_IN2                    1052
 #define IDC_STATIC                      -1
 
 // Next default values for new objects
@@ -71,7 +76,7 @@
 #define _APS_NO_MFC                     1
 #define _APS_NEXT_RESOURCE_VALUE        133
 #define _APS_NEXT_COMMAND_VALUE         32771
-#define _APS_NEXT_CONTROL_VALUE         1048
+#define _APS_NEXT_CONTROL_VALUE         1051
 #define _APS_NEXT_SYMED_VALUE           110
 #endif
 #endif

@@ -33,18 +33,54 @@ using namespace Microsoft::WRL;
 // Pointer to WebViewController
 static wil::com_ptr<ICoreWebView2Controller> webviewController1;
 static wil::com_ptr<ICoreWebView2Controller> webviewController2;
+static wil::com_ptr<ICoreWebView2Controller> webviewController3;
 // Pointer to WebView window
 static wil::com_ptr<ICoreWebView2> webviewWindow1;
 static wil::com_ptr<ICoreWebView2> webviewWindow2;
+static wil::com_ptr<ICoreWebView2> webviewWindow3;
+
+static wil::com_ptr<ICoreWebView2CookieManager> cookieManager;
 
 EventRegistrationToken m_navCompletedToken1 = {};
 EventRegistrationToken m_navCompletedToken2 = {};
+EventRegistrationToken m_navCompletedToken3 = {};
 
+int iCookie = 0;
+void SetCookie(LPCWSTR uri, LPWSTR lpCookie);
+
+WCHAR wCookieFileName[2][12] = { L"cookie1.txt" ,L"cookie2.txt" };
+
+
+void ReadCookieFromFile(int n,LPWSTR lpCookie)
+{
+    HANDLE hFile = CreateFile(wCookieFileName[n], GENERIC_READ, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_ARCHIVE, NULL);
+    if (hFile!= INVALID_HANDLE_VALUE)
+    {
+        WORD unicode_identifier = 0xfeff;
+        DWORD dSize;
+        ReadFile(hFile, &unicode_identifier, sizeof(WORD), &dSize, NULL);
+        lpCookie[0] = L'\0';
+        ReadFile(hFile, lpCookie, 8191 * sizeof(WCHAR), &dSize, NULL);
+        CloseHandle(hFile);
+    }
+}
+void WriteCookieToFile(int n,LPWSTR lpCookie)
+{
+    HANDLE hFile = CreateFile(wCookieFileName[n], GENERIC_READ | GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_ARCHIVE, NULL);
+    if (hFile != INVALID_HANDLE_VALUE)
+    {
+		WORD unicode_identifier = 0xfeff;
+		DWORD dSize;
+        WriteFile(hFile, &unicode_identifier, sizeof(WORD), &dSize, NULL);
+        WriteFile(hFile, lpCookie, lstrlen(lpCookie) * 2, &dSize, NULL);
+        CloseHandle(hFile);
+    }
+}
 typedef struct WEBSTRUCT
 {
-	BOOL bWebRun[2];
-	BOOL bWebGet[2];
-	WCHAR url[2][4096];
+	BOOL bWebRun[3];
+	BOOL bWebGet[3];
+	WCHAR url[3][4096];
 	WCHAR wSource[2][1024 * 1024 * 3];
 }_WEBSTRUCT;
 WEBSTRUCT WebStruct;
@@ -274,7 +310,8 @@ typedef struct _SMZDMITEM
 	UINT lTalk;//评论
     float fPrice;//价格
     SYSTEMTIME st;//时间
-    WCHAR szGoPath[513];//直达链接
+    WCHAR szGoPath[511];//直达链接
+    BOOL bGrey;
 }SMZDMITEM;
 typedef struct _REMINDDATA
 {
@@ -631,9 +668,9 @@ void ItemToHtml(BOOL bList)
                     wsprintf(sz1, L"%d.%2.2d元</b><br/><br/>值%d <span style=\"color:#000000\">值%d</span> 评%d</p><p style=\"text-align:right\">%2.2d-%2.2d %2.2d:%2.2d<br/><br/>%s</p><b>",
                         p / 100, p % 100, si.lZhi,si.lBuZhi,si.lTalk, si.st.wMonth, si.st.wDay, si.st.wHour, si.st.wMinute,si.szBusiness);
                     lstrcat(sz, sz1);
-//                    if (si.szTitle[127] == L'~')
-//                        wsprintf(sz1, L"<p style=\"color:#FF8080\">上次看到这里--%s</p></b></small><font size=\"1\"><div style=\"text-align:left;color:#383838\">", si.szTitle);
-//                    else
+                    if(si.bGrey)
+                        wsprintf(sz1, L"<p style=\"color:#888888\">%s</p></b></small><font size=\"1\"><div style=\"text-align:left;color:#383838\">", si.szTitle);
+                    else
                         wsprintf(sz1, L"<p>%s</p></b></small><font size=\"1\"><div style=\"text-align:left;color:#383838\">", si.szTitle);
                     lstrcat(sz, sz1);
                     lstrcat(sz, si.szDescribe);
@@ -1430,7 +1467,7 @@ DWORD WINAPI GetZhiThreadProc(PVOID pParam)//获取网站数据线程
 		ListView_SetItemText(hList, i, 7, szUrl);
     return 0;
 }
-BOOL SearchSMZDM(REMINDITEM* lpRI, BOOL bList, int iPage, BOOL bSmzdmSearch,BOOL bSend)
+BOOL SearchSMZDM(REMINDITEM* lpRI, BOOL bList, int iPage, BOOL bSmzdmSearch,BOOL bSend,BOOL bGrey)
 {
     WCHAR szGet[1024] = L"/?s=";
     WCHAR szUrlCode[1024];
@@ -1531,14 +1568,14 @@ BOOL SearchSMZDM(REMINDITEM* lpRI, BOOL bList, int iPage, BOOL bSmzdmSearch,BOOL
     {
         WebStruct.bWebGet[0] = FALSE;
         WebStruct.bWebRun[0] = TRUE;
-        while (WebStruct.bWebRun[0]) { Sleep(1); }
+        while (WebStruct.bWebRun[0]) { Sleep(18); }
 
     }
     else
     {
         WebStruct.bWebGet[1] = FALSE;
         WebStruct.bWebRun[1] = TRUE;
-        while (WebStruct.bWebRun[1]) { Sleep(1); }
+        while (WebStruct.bWebRun[1]) { Sleep(18); }
     }
     {        
 //        DWORD sl = strlen(pszOutBuffer);
@@ -1583,14 +1620,22 @@ BOOL SearchSMZDM(REMINDITEM* lpRI, BOOL bList, int iPage, BOOL bSmzdmSearch,BOOL
             cStart = lstrstr(szOutBuffer, L"feed-row-wide");
         else
             cStart = lstrstr(szOutBuffer, L"pandect-content-img");
-        while (cStart)
+        while (cStart&&cStart<szOutBuffer+1024*1024*3-128)
         {
             GetLocalTime(&st);
             UINT tid = 0;
+            
+            WCHAR R = cStart[64];
+            cStart[64] = L'\0';
             WCHAR* cGray = NULL;
-            if (lpRI->szMemberID[0] == L'\0' && !bList)
-                cGray = lstrstr(cStart, L"feed-row-grey");
-            if (cGray > cStart + 32 || cGray == NULL || bList || lpRI->szMemberID[0] != L'\0')//不是灰色的继续
+            cGray = lstrstr(cStart, L"feed-row-grey");
+            cStart[64] = R;
+			if (cGray != NULL && cGray < cStart + 64)
+				SmzdmItem.bGrey = TRUE;
+			else
+				SmzdmItem.bGrey = FALSE;
+
+            if (SmzdmItem.bGrey==FALSE || lpRI->szMemberID[0] != L'\0' || (bList && bGrey))//不是灰色的继续
             {
                 cStart += 12;
                 if (lpRI->szMemberID[0] == L'\0')
@@ -1771,8 +1816,8 @@ BOOL SearchSMZDM(REMINDITEM* lpRI, BOOL bList, int iPage, BOOL bSmzdmSearch,BOOL
                                 if (cGoPathRight)
                                 {
                                     __int64 n = cGoPathRight - cGoPathLeft + 1;
-                                    if (n > 511)
-                                        n = 511;
+                                    if (n > 509)
+                                        n = 509;
                                     lstrcpyn(SmzdmItem.szGoPath, cGoPathLeft, n);
                                 }
                             }
@@ -2220,13 +2265,13 @@ BOOL SearchSMZDM(REMINDITEM* lpRI, BOOL bList, int iPage, BOOL bSmzdmSearch,BOOL
                 if (bZhi)
                 {
                     UINT uPercentage;
-                    if (SmzdmItem.lZhi == 0|| SmzdmItem.lBuZhi >= SmzdmItem.lZhi)
+                    if (SmzdmItem.lZhi == 0|| SmzdmItem.lBuZhi > SmzdmItem.lZhi)
                         uPercentage = 0;
                     else if (SmzdmItem.lBuZhi == 0)
                         uPercentage = 100;
                     else
                         uPercentage = SmzdmItem.lZhi*100 / (SmzdmItem.lZhi+ SmzdmItem.lBuZhi);
-                    if ((lpRI->uZhi < SmzdmItem.lZhi || lpRI->uZhi == 0) && (lpRI->uBuZhi > SmzdmItem.lBuZhi || lpRI->uBuZhi == 0) && (lpRI->uPercentage < uPercentage || lpRI->uPercentage == 0) && (SmzdmItem.lTalk > lpRI->uTalk || lpRI->uTalk == 0))
+                    if ((lpRI->uZhi < SmzdmItem.lZhi || lpRI->uZhi == 0) && (lpRI->uBuZhi > SmzdmItem.lBuZhi || lpRI->uBuZhi == 0) && (lpRI->uPercentage <= uPercentage || lpRI->uPercentage == 0) && (SmzdmItem.lTalk > lpRI->uTalk || lpRI->uTalk == 0))
                         bYes = TRUE;
                     else
                         bYes = FALSE;
@@ -2516,6 +2561,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
 }
 DWORD WINAPI GetDataThreadProc(PVOID pParam)//获取网站数据线程
 {
+    int s = 36;
 	while (!bExit)
 	{
 		DWORD dStart = GetTickCount();
@@ -2554,12 +2600,40 @@ DWORD WINAPI GetDataThreadProc(PVOID pParam)//获取网站数据线程
                 lstrcpy(wTips, tips);
                 lstrcat(wTips, lpRemindItem[i].szKey);
                 SetWindowText(hMain, wTips);
-                SearchSMZDM(&lpRemindItem[i], FALSE, FALSE, FALSE,TRUE);
+                SearchSMZDM(&lpRemindItem[i], FALSE, FALSE, FALSE,TRUE,FALSE);
                 if(!lpRemindItem[i].bMemberPost&&lpRemindItem[i].szMemberID[0]!=L'\0')
-                    SearchSMZDM(&lpRemindItem[i], FALSE, 2, FALSE,TRUE);
+                    SearchSMZDM(&lpRemindItem[i], FALSE, 2, FALSE,TRUE, FALSE);
             }
 		}
-		WriteSet(NULL);
+		WriteSet(NULL);        
+        if (s == 36)
+        {
+            if (WebStruct.bWebRun[2] == FALSE)
+            {
+                iCookie = 0;
+                WCHAR wCookie[8192];
+                ReadCookieFromFile(0, wCookie);
+                if (wCookie[0]!=L'\0')
+                {
+                    SetCookie(L".smzdm.com", wCookie);
+                    lstrcpy(WebStruct.url[2], L"https://www.smzdm.com/");
+                    WebStruct.bWebGet[2] = FALSE;
+                    WebStruct.bWebRun[2] = TRUE;
+                    while (WebStruct.bWebRun[2]) { Sleep(100); }
+                }
+//                Sleep(6666);
+                ReadCookieFromFile(1, wCookie);
+                if (wCookie[0] != L'\0')
+                {
+                    SetCookie(L".smzdm.com", wCookie);
+                    iCookie = 1;
+                    WebStruct.bWebGet[2] = FALSE;
+                    WebStruct.bWebRun[2] = TRUE;
+                }
+            }
+            s = 0;
+        }
+        s++;
 		SetWindowText(hMain, nid.szTip);
         bOpen = TRUE;
         bGetData = FALSE;
@@ -2569,6 +2643,7 @@ DWORD WINAPI GetDataThreadProc(PVOID pParam)//获取网站数据线程
 
 DWORD WINAPI WebThreadProc(PVOID pParam)//获取网站数据线程
 {
+    static wil::com_ptr<ICoreWebView2Environment> m_webViewEnvironment;
 	hWeb = ::CreateDialog(hInst, MAKEINTRESOURCE(IDD_WEB), NULL, (DLGPROC)WebProc);
 //	ShowWindow(hWeb, SW_SHOW);
 //	UpdateWindow(hWeb);
@@ -2577,6 +2652,7 @@ DWORD WINAPI WebThreadProc(PVOID pParam)//获取网站数据线程
 		Callback<ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler>(
 			[hWnd](HRESULT result1, ICoreWebView2Environment* env1) -> HRESULT
 			{
+                m_webViewEnvironment = env1;
 				env1->CreateCoreWebView2Controller(hWnd, Callback<ICoreWebView2CreateCoreWebView2ControllerCompletedHandler>(
 					[hWnd](HRESULT result1, ICoreWebView2Controller* controller1) -> HRESULT
 					{
@@ -2588,23 +2664,47 @@ DWORD WINAPI WebThreadProc(PVOID pParam)//获取网站数据线程
 						ICoreWebView2Settings* Settings1;
 						webviewWindow1->get_Settings(&Settings1);
 						Settings1->put_IsScriptEnabled(TRUE);
+						ICoreWebView2Settings4 *Settings4;
+                        Settings4 = (ICoreWebView2Settings4 *)Settings1;
+                        Settings4->put_IsGeneralAutofillEnabled(TRUE);
+                        Settings4->put_IsPasswordAutosaveEnabled(TRUE);
 						//						Settings->put_AreDefaultScriptDialogsEnabled(TRUE);
 						//						Settings->put_IsWebMessageEnabled(TRUE);                        
 						RECT bounds1;
 						GetClientRect(hWnd, &bounds1);
-						bounds1.right /= 2;
+						bounds1.right /= 3;
 						webviewController1->put_Bounds(bounds1);
+                        
+                        webviewWindow1->AddWebResourceRequestedFilter(L"*", COREWEBVIEW2_WEB_RESOURCE_CONTEXT_IMAGE);
+						static EventRegistrationToken m_webResourceRequestedTokenForImageBlocking = {};
+						webviewWindow1->add_WebResourceRequested(
+							Callback<ICoreWebView2WebResourceRequestedEventHandler>(
+								[hWnd](
+									ICoreWebView2* sender,
+									ICoreWebView2WebResourceRequestedEventArgs* args) {
+										COREWEBVIEW2_WEB_RESOURCE_CONTEXT resourceContext;
+											args->get_ResourceContext(&resourceContext);
+										if (resourceContext != COREWEBVIEW2_WEB_RESOURCE_CONTEXT_IMAGE)
+										{
+											return E_INVALIDARG;
+										}
+										wil::com_ptr<ICoreWebView2WebResourceResponse> response;
+                                        m_webViewEnvironment->CreateWebResourceResponse(nullptr, 403 /*NoContent*/, L"Blocked", L"", &response);
+										args->put_Response(response.get());
+										return S_OK;
+								}).Get(), &m_webResourceRequestedTokenForImageBlocking);
+
 						webviewWindow1->add_NavigationCompleted(Callback<ICoreWebView2NavigationCompletedEventHandler>(
 							[hWnd](ICoreWebView2* webview1, ICoreWebView2NavigationCompletedEventArgs* args1) -> HRESULT
 							{
-								webviewWindow1->ExecuteScript(L"document.body.outerText;", Callback<ICoreWebView2ExecuteScriptCompletedHandler>(
-									[hWnd](HRESULT error1, PCWSTR result1) -> HRESULT
-									{
-										wcsncpy_s(WebStruct.wSource[0], result1, 1024 * 1024 * 3 - 1);
-										WebStruct.bWebRun[0] = FALSE;
-										WebStruct.bWebGet[0] = FALSE;
-										return S_OK;
-									}).Get());
+                                webviewWindow1->ExecuteScript(L"document.body.outerText;", Callback<ICoreWebView2ExecuteScriptCompletedHandler>(
+                                    [hWnd](HRESULT error1, PCWSTR result1) -> HRESULT
+                                    {
+                                        wcsncpy_s(WebStruct.wSource[0], result1, 1024 * 1024 * 3 - 1);
+                                        WebStruct.bWebRun[0] = FALSE;
+                                        WebStruct.bWebGet[0] = FALSE;
+                                        return S_OK;
+                                    }).Get());
 								return S_OK;
 							}).Get(), &m_navCompletedToken1);
                         webviewWindow1->Navigate(L"https://search.smzdm.com/?c=home&s=%E6%89%8B%E6%9C%BA&mx_v=b");
@@ -2622,27 +2722,119 @@ DWORD WINAPI WebThreadProc(PVOID pParam)//获取网站数据线程
 						webviewWindow2->get_Settings(&Settings2);
 						Settings2->put_IsScriptEnabled(TRUE);
 						Settings2->put_AreDefaultScriptDialogsEnabled(TRUE);
-						Settings2->put_IsWebMessageEnabled(TRUE);                        
+						Settings2->put_IsWebMessageEnabled(TRUE);
+						ICoreWebView2Settings4* Settings4;
+						Settings4 = (ICoreWebView2Settings4*)Settings2;
+						Settings4->put_IsGeneralAutofillEnabled(TRUE);
+						Settings4->put_IsPasswordAutosaveEnabled(TRUE);
 						RECT bounds2;
 						GetClientRect(hWnd, &bounds2);
-						bounds2.left = bounds2.right / 2 + 1;
+						bounds2.left = bounds2.right / 3 + 1;
+                        bounds2.right = bounds2.right / 3 * 2;
 						webviewController2->put_Bounds(bounds2);
 						webviewWindow2->add_NavigationCompleted(Callback<ICoreWebView2NavigationCompletedEventHandler>(
 							[hWnd](ICoreWebView2* webview2, ICoreWebView2NavigationCompletedEventArgs* args2) -> HRESULT
 							{
-								webviewWindow2->ExecuteScript(L"document.body.outerText;", Callback<ICoreWebView2ExecuteScriptCompletedHandler>(
-									[hWnd](HRESULT error2, PCWSTR result2) -> HRESULT
-									{
-										wcsncpy_s(WebStruct.wSource[1], result2, 1024 * 1024 * 3 - 1);                                        
-										WebStruct.bWebRun[1] = FALSE;
-										WebStruct.bWebGet[1] = FALSE;
-										return S_OK;
-									}).Get());
+                                webviewWindow2->ExecuteScript(L"document.body.outerText;", Callback<ICoreWebView2ExecuteScriptCompletedHandler>(
+                                    [hWnd](HRESULT error2, PCWSTR result2) -> HRESULT
+                                    {
+                                        wcsncpy_s(WebStruct.wSource[1], result2, 1024 * 1024 * 3 - 1);
+                                        WebStruct.bWebRun[1] = FALSE;
+                                        WebStruct.bWebGet[1] = FALSE;
+                                        return S_OK;
+                                    }).Get());
 								return S_OK;
 							}).Get(), &m_navCompletedToken2);
-                        webviewWindow2->Navigate(L"https://search.smzdm.com/?c=home&s=%E6%89%8B%E6%9C%BA&mx_v=b");
+//                        webviewWindow2->Navigate(L"https://search.smzdm.com/?c=home&s=%E6%89%8B%E6%9C%BA&mx_v=b");
 						return S_OK;                        
 					}).Get());                
+				env1->CreateCoreWebView2Controller(hWnd, Callback<ICoreWebView2CreateCoreWebView2ControllerCompletedHandler>(
+					[hWnd](HRESULT result3, ICoreWebView2Controller* controller3) -> HRESULT
+					{
+						if (controller3 != nullptr)
+						{
+							webviewController3 = controller3;
+							webviewController3->get_CoreWebView2(&webviewWindow3);
+						}
+						ICoreWebView2Settings* Settings3;
+						webviewWindow3->get_Settings(&Settings3);
+						Settings3->put_IsScriptEnabled(TRUE);
+						Settings3->put_AreDefaultScriptDialogsEnabled(TRUE);
+						Settings3->put_IsWebMessageEnabled(TRUE);
+						ICoreWebView2Settings4* Settings4;
+						Settings4 = (ICoreWebView2Settings4*)Settings3;
+						Settings4->put_IsGeneralAutofillEnabled(TRUE);
+						Settings4->put_IsPasswordAutosaveEnabled(TRUE);
+						RECT bounds3;
+						GetClientRect(hWnd, &bounds3);
+						bounds3.left = bounds3.right / 3*2 + 1;
+						webviewController3->put_Bounds(bounds3);
+						
+                        webviewWindow3->AddWebResourceRequestedFilter(L"*", COREWEBVIEW2_WEB_RESOURCE_CONTEXT_IMAGE);
+						static EventRegistrationToken m_webResourceRequestedTokenForImageBlocking = {};
+						webviewWindow3->add_WebResourceRequested(
+							Callback<ICoreWebView2WebResourceRequestedEventHandler>(
+								[hWnd](
+									ICoreWebView2* sender,
+									ICoreWebView2WebResourceRequestedEventArgs* args) {
+										COREWEBVIEW2_WEB_RESOURCE_CONTEXT resourceContext;
+										args->get_ResourceContext(&resourceContext);
+										if (resourceContext != COREWEBVIEW2_WEB_RESOURCE_CONTEXT_IMAGE)
+										{
+											return E_INVALIDARG;
+										}
+										wil::com_ptr<ICoreWebView2WebResourceResponse> response;
+										m_webViewEnvironment->CreateWebResourceResponse(nullptr, 403 /*NoContent*/, L"Blocked", L"", &response);
+										args->put_Response(response.get());
+										return S_OK;
+								}).Get(), &m_webResourceRequestedTokenForImageBlocking);
+
+						auto webview2_2 = webviewWindow3.try_query<ICoreWebView2_2>();
+						webview2_2->get_CookieManager(&cookieManager);
+						WCHAR wCookie[8192];
+						ReadCookieFromFile(0, wCookie);
+                        if (wCookie[0] != L'\0')
+						    SetCookie(L".smzdm.com", wCookie);
+						webviewWindow3->add_NavigationCompleted(Callback<ICoreWebView2NavigationCompletedEventHandler>(
+							[hWnd](ICoreWebView2* webview3, ICoreWebView2NavigationCompletedEventArgs* args3) -> HRESULT
+							{
+//								wil::unique_cotaskmem_string uri;
+//								webviewWindow3->get_Source(&uri);
+//								if (lstrcmp(uri.get(), L"https://www.smzdm.com/") == 0)//签到
+								{
+									webviewWindow3->ExecuteScript(L"$('.J_punch').trigger('click');", Callback<ICoreWebView2ExecuteScriptCompletedHandler>(
+										[hWnd](HRESULT error3, PCWSTR result3) -> HRESULT
+										{
+											return S_OK;
+										}).Get());
+									Sleep(1111);
+									webviewWindow3->ExecuteScript(L"document.getElementsByClassName(\"J_punch\")[0].innerText;", Callback<ICoreWebView2ExecuteScriptCompletedHandler>(
+										[hWnd](HRESULT error3, PCWSTR result3) -> HRESULT
+										{
+											if (lstrstr(result3, L"已") == 0)
+											{
+												if (iCookie == 0)
+													SetDlgItemText(hMain, IDC_SIGN_IN1, L"Cookie过期!");
+												else
+													SetDlgItemText(hMain, IDC_SIGN_IN2, L"Cookie过期!");
+											}
+											else
+											{
+												if (iCookie == 0)
+													SetDlgItemText(hMain, IDC_SIGN_IN1, result3);
+												else
+													SetDlgItemText(hMain, IDC_SIGN_IN2, result3);
+											}
+											WebStruct.bWebRun[2] = FALSE;
+											WebStruct.bWebGet[2] = FALSE;
+											return S_OK;
+										}).Get());
+								}
+								return S_OK;
+							}).Get(), &m_navCompletedToken3);
+//						webviewWindow3->Navigate(L"https://www.smzdm.com/");
+						return S_OK;
+					}).Get());
 				return S_OK;
 			}).Get());
 	SetTimer(hWeb, 1, 33, NULL);
@@ -2681,9 +2873,7 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 //    iTray = LoadIcon(hInst, MAKEINTRESOURCE(IDI_TRAY));
     SetClassLongPtr(hMain, -14, (LONG_PTR)iMain);
     SetClassLongPtr(hMain, -34, (LONG_PTR)iMain);        
-
-    CloseHandle(CreateThread(NULL, 0, WebThreadProc, 0, 0, 0));
-
+    
     //////////////////////////////////////////////////////////////////////////////////设置通知栏图标
     nid.cbSize = sizeof NOTIFYICONDATA;
     nid.uID = WM_IAWENTRAY;
@@ -2783,6 +2973,12 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
     SetDlgItemText(hMain, IDC_COMBO_SOUND, RemindSave.szBarkSound);
     CheckDlgButton(hMain, IDC_CHECK_SCORE, RemindSave.bScoreSort);
     CheckDlgButton(hMain, IDC_CHECK_AUTORUN, AutoRun(FALSE, FALSE, szAppName));
+    CheckDlgButton(hMain, IDC_CHECK_GREY, TRUE);
+    WCHAR wCookie[8192];
+    ReadCookieFromFile(0,wCookie);
+    SetDlgItemText(hMain, IDC_COOKIE1, wCookie);
+	ReadCookieFromFile(1,wCookie);
+	SetDlgItemText(hMain, IDC_COOKIE2, wCookie);
     if (riSize)
     {
 		//	ListView_DeleteAllItems(hListRemind);
@@ -2825,9 +3021,13 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
     }
     else
         ShowWindow(hMain, SW_SHOW);
+    
+    CloseHandle(CreateThread(NULL, 0, WebThreadProc, 0, 0, 0));
+
     hGetDataThread = CreateThread(NULL, 0, GetDataThreadProc, 0, 0, 0);    
     if (RemindSave.bTips)
         LoadToast();
+    
 /*
     WinToast::isCompatible();
 	WinToast::instance()->setAppName(szAppName);
@@ -2860,6 +3060,14 @@ LRESULT CALLBACK WebProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 					webviewWindow2->Navigate(WebStruct.url[1]);
 				}
 			}
+            if (webviewWindow3)
+            {
+				if (WebStruct.bWebRun[2] && !WebStruct.bWebGet[2])
+				{
+					WebStruct.bWebGet[2] = TRUE;
+					webviewWindow3->Navigate(WebStruct.url[2]);
+				}
+            }
 		}
     case WM_INITDIALOG:
     {
@@ -3064,7 +3272,48 @@ LRESULT CALLBACK MainProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             // 分析菜单选择:
             switch (wmId)
             {
+            case IDC_SIGN_IN1:
+            case IDC_SIGN_IN2:
+            {
+                if (WebStruct.bWebRun[2] == FALSE)
+                {
+                    WCHAR wCookie[8192];
+                    if (wmId == IDC_SIGN_IN1)
+                    {
+
+                        GetDlgItemText(hMain, IDC_COOKIE1, wCookie, 8191);
+                        WriteCookieToFile(0, wCookie);
+                        if (wCookie[0] != L'\0')
+                            SetCookie(L".smzdm.com", wCookie);
+                        iCookie = 0;
+                    }
+                    else
+                    {
+                        GetDlgItemText(hMain, IDC_COOKIE2, wCookie, 8191);
+                        WriteCookieToFile(1, wCookie);
+                        if (wCookie[0] != L'\0')
+                            SetCookie(L".smzdm.com", wCookie);
+                        iCookie = 1;
+                    }
+                    if (wCookie[0] != L'\0')
+                    {
+                        lstrcpy(WebStruct.url[2], L"https://www.smzdm.com/");
+                        WebStruct.bWebGet[2] = FALSE;
+                        WebStruct.bWebRun[2] = TRUE;
+                    }
+                }
+            }
+                break;
             case IDC_BUTTON_LINK1:
+/*
+            {
+                lstrcpy(WebStruct.url[1], L"https://www.smzdm.com");
+				WebStruct.bWebGet[1] = FALSE;
+				WebStruct.bWebRun[1] = TRUE;
+				while (WebStruct.bWebRun[1]) { Sleep(1); }
+            }
+                break;
+*/
             case IDC_BUTTON_LINK2:
             case IDC_BUTTON_LINK3:
             case IDC_BUTTON_LINK4:
@@ -3210,6 +3459,7 @@ LRESULT CALLBACK MainProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                 ri.uZhi = GetDlgItemInt(hWnd, IDC_EDIT_ZHI, NULL, FALSE);
                 ri.uBuZhi = GetDlgItemInt(hWnd, IDC_EDIT_BUZHI, NULL, FALSE);
                 ri.uPercentage = (int)SendMessage(hComBoPercentage, CB_GETCURSEL, NULL, NULL);
+                BOOL bGrey = IsDlgButtonChecked(hWnd, IDC_CHECK_GREY);
                 if (ri.uPercentage != 0)
                     ri.uPercentage = ri.uPercentage * 10 + 40;
 //                ri.uPercentage = GetDlgItemInt(hWnd, IDC_EDIT_PERCENTAGE, NULL, FALSE);
@@ -3217,15 +3467,15 @@ LRESULT CALLBACK MainProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                 int nSearch=SendMessage(hComboSearch, CB_GETCURSEL, 0, 0);
                 if (nSearch==2)
                 {
-                    SearchSMZDM(&ri, TRUE, 0, TRUE,FALSE);
+                    SearchSMZDM(&ri, TRUE, 0, TRUE,FALSE,bGrey);
                 }
                 else if (wmId == IDC_SEARCH)
                 {
-                    SearchSMZDM(&ri, TRUE, 0,FALSE,FALSE);
+                    SearchSMZDM(&ri, TRUE, 0,FALSE,FALSE, bGrey);
                     int n = (int)SendMessage(hComboPage, CB_GETCURSEL, NULL, NULL);
                     for (int i = 1; i <= n; i++)
                     {
-                        SearchSMZDM(&ri, TRUE, i + 1,FALSE,FALSE);
+                        SearchSMZDM(&ri, TRUE, i + 1,FALSE,FALSE, bGrey);
                     }
                     if (ri.szMemberID[0] != L'\0')
                     {
@@ -3328,6 +3578,12 @@ LRESULT CALLBACK MainProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                 RemindSave.iTime = (int)SendMessage(hComboTime, CB_GETCURSEL, NULL, NULL);
                 RemindSave.iPage = (int)SendMessage(hComboPage, CB_GETCURSEL, NULL, NULL);
                 WriteSet(NULL);
+                WCHAR wCookie[8192];
+				GetDlgItemText(hMain, IDC_COOKIE1, wCookie, 8191);
+				WriteCookieToFile(0,wCookie);
+				GetDlgItemText(hMain, IDC_COOKIE2, wCookie, 8191);
+				WriteCookieToFile(1,wCookie);
+
 /*
                 KillTimer(hMain, 3);
                 SetTimer(hMain, 3, iTimes[RemindSave.iTime] * 60000, NULL);
@@ -3361,4 +3617,35 @@ LRESULT CALLBACK MainProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         break;
     }
     return (INT_PTR)FALSE;
+}
+void SetCookie(LPCWSTR uri,LPWSTR lpCookie)
+{
+    if (webviewWindow2)
+    {
+        if (cookieManager)
+        {
+            LPWSTR  cStart = lpCookie;
+            while (cStart)
+            {
+                LPWSTR cValue = lstrstr(cStart, L"=");
+                if (cValue > cStart && cValue != NULL)
+                {
+                    cValue[0] = L'\0';
+                    LPWSTR cName = cStart;
+                    cValue += 1;
+                    cStart = lstrstr(cValue, L"; ");
+                    if (cStart != NULL)
+                    {
+                        cStart[0] = L'\0';
+                        cStart += 2;
+                    }
+                    wil::com_ptr<ICoreWebView2Cookie> cookie;
+                    cookieManager->CreateCookie(cName, cValue, uri, L"/", &cookie);
+                    cookieManager->AddOrUpdateCookie(cookie.get());
+                }
+                else
+                    cStart = NULL;
+            }
+        }
+    }
 }
