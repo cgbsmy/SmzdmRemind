@@ -2611,12 +2611,12 @@ DWORD WINAPI GetDataThreadProc(PVOID pParam)//获取网站数据线程
             if (WebStruct.bWebRun[2] == FALSE)
             {
                 iCookie = 0;
+                lstrcpy(WebStruct.url[2], L"https://www.smzdm.com/");
                 WCHAR wCookie[8192];
                 ReadCookieFromFile(0, wCookie);
                 if (wCookie[0]!=L'\0')
                 {
-                    SetCookie(L".smzdm.com", wCookie);
-                    lstrcpy(WebStruct.url[2], L"https://www.smzdm.com/");
+                    SetCookie(L".smzdm.com", wCookie);                    
                     WebStruct.bWebGet[2] = FALSE;
                     WebStruct.bWebRun[2] = TRUE;
                     while (WebStruct.bWebRun[2]) { Sleep(100); }
